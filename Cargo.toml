@@ -1,0 +1,50 @@
+[package]
+name = "ffmpeg-webrust"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Self-contained local web UI for ffmpeg: native ffmpeg when available, ffmpeg.wasm otherwise"
+repository = "https://github.com/Ivan08/ffweb"
+
+[lib]
+name = "ffweb"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ffweb"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["macros", "multipart"] }
+clap = { version = "4", features = ["derive", "env"] }
+dashmap = "6"
+directories = "5"
+futures = "0.3"
+mime_guess = "2"
+open = "5"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+rust-embed = { version = "8", features = ["mime-guess"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "set-header", "trace", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+urlencoding = "2"
+
+[dev-dependencies]
+# Test-only: the filesystem tests need a real directory to work in, and the
+# HTTP tests need a client to talk to the server they start.
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

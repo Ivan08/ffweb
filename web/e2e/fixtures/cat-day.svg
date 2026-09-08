@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Кот на подоконнике — день</title>
+  <desc id="desc">Рыжий полосатый кот греется у солнечного окна, качает хвостом, моргает и подрагивает ухом. За окном плывут облака. Цикл — две секунды.</desc>
+  <defs>
+    <clipPath id="frame"><rect width="960" height="540"/></clipPath>
+    <clipPath id="window"><rect x="87" y="59" width="678" height="359" rx="12"/></clipPath>
+    <clipPath id="chest"><path d="M452 312 C429 337 422 372 414 421 Q396 454 429 456 L563 456 Q585 455 575 429 C570 385 574 346 547 316 Z"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)" stroke-linecap="round" stroke-linejoin="round">
+    <rect width="960" height="540" fill="#f7e8cf"/>
+    <path d="M0 488 H960 V540 H0Z" fill="#f0d7b6"/>
+    <path d="M252 473 H438 L569 540 H348Z" fill="#fff2d6"/>
+    <path d="M652 473 H742 L858 540 H740Z" fill="#fff2d6"/>
+    <rect x="72" y="43" width="718" height="395" rx="23" fill="#c7956b" opacity=".2"/>
+    <rect x="65" y="36" width="722" height="395" rx="23" fill="#e8b986" stroke="#986347" stroke-width="4"/>
+    <rect x="78" y="49" width="696" height="378" rx="17" fill="#fff0d0"/>
+    <g clip-path="url(#window)">
+      <rect x="87" y="59" width="678" height="359" fill="#bfe2df"/>
+      <path d="M87 268 C222 247 281 283 406 273 S645 245 765 268 V418 H87Z" fill="#d2e9db"/>
+      <g fill="#ffe59b" stroke="#ffe59b" stroke-width="4">
+        <path d="M661 77 V67 M661 169 V179 M615 123 H605 M707 123 H717 M628 90 L621 83 M694 156 L701 163 M628 156 L621 163 M694 90 L701 83"/>
+        <circle cx="661" cy="123" r="32" stroke="none"/>
+      </g>
+      <g fill="#fff9e9">
+        <g>
+          <animateTransform attributeName="transform" type="translate" values="0 0;24 0;0 0" keyTimes="0;.5;1" calcMode="spline" keySplines=".42 0 .58 1;.42 0 .58 1" dur="2s" repeatCount="indefinite"/>
+          <path d="M138 138 C125 138 120 128 128 119 C133 113 142 114 149 117 C149 99 163 91 177 98 C184 80 211 84 218 101 C236 97 250 108 249 120 C270 115 281 138 262 143 H143Z"/>
+          <path d="M485 111 C474 111 471 103 478 97 C484 93 490 95 494 96 C494 83 508 75 519 83 C529 65 552 73 554 88 C571 85 583 96 577 106 Q574 112 565 112Z" opacity=".85"/>
+        </g>
+        <g>
+          <animateTransform attributeName="transform" type="translate" values="0 0;-20 0;0 0" keyTimes="0;.5;1" calcMode="spline" keySplines=".42 0 .58 1;.42 0 .58 1" dur="2s" repeatCount="indefinite"/>
+          <path d="M295 191 C280 191 278 176 290 171 Q298 168 307 173 C307 151 334 144 346 160 C364 149 382 161 381 176 C401 169 414 192 392 195 H305Z"/>
+          <path d="M624 218 C612 218 608 207 619 201 Q628 197 636 200 C637 181 662 176 672 193 C690 188 702 202 696 211 Q695 219 684 219Z" opacity=".8"/>
+        </g>
+      </g>
+      <path d="M87 325 C153 298 211 311 276 330 S387 326 445 312 V418 H87Z" fill="#9dbd95"/>
+      <path d="M532 346 C626 296 697 317 765 299 V418 H532Z" fill="#94b899"/>
+      <path d="M133 309 H266 V418 H133Z" fill="#f5d8a8"/>
+      <path d="M116 310 L198 251 L282 310Z" fill="#c57858"/>
+      <path d="M137 295 L198 251 L264 297" fill="none" stroke="#a8644c" stroke-width="5"/>
+      <path d="M231 272 V248 H249 V285" fill="#bd795b"/>
+      <g fill="#799f9e" stroke="#fff0ce" stroke-width="5">
+        <rect x="153" y="333" width="30" height="39" rx="2"/>
+        <rect x="215" y="333" width="30" height="39" rx="2"/>
+      </g>
+      <path d="M168 333 V372 M230 333 V372" fill="none" stroke="#fff0ce" stroke-width="3"/>
+      <path d="M302 348 H383 V418 H302Z" fill="#e5c09b"/>
+      <path d="M291 350 L344 308 L394 350Z" fill="#dfa67b"/>
+      <rect x="323" y="364" width="25" height="29" rx="2" fill="#91afaa"/>
+      <path d="M716 412 V303 M716 349 L687 330 M716 365 L743 342" fill="none" stroke="#718b6a" stroke-width="8"/>
+      <path d="M673 338 C639 317 659 279 683 282 C680 256 718 240 736 270 C765 263 783 294 762 313 C777 341 747 361 725 345 C706 363 679 358 673 338Z" fill="#7fa57e"/>
+      <path d="M689 301 C699 290 718 288 730 296" fill="none" stroke="#9dbe91" stroke-width="8"/>
+    </g>
+    <rect x="87" y="59" width="678" height="359" rx="12" fill="none" stroke="#be8a60" stroke-width="3"/>
+    <path d="M418 59 H436 V420 H418Z" fill="#e6b380"/>
+    <path d="M419 60 H426 V418 H419Z" fill="#fff0d0"/>
+    <rect x="401" y="232" width="11" height="32" rx="5" fill="#aa7654"/>
+    <path d="M801 26 H939 V440 Q901 451 869 433 Q843 442 820 430 L844 299 C804 225 808 118 801 26Z" fill="#f6d7aa" stroke="#d8b48a" stroke-width="3"/>
+    <path d="M831 34 C828 157 838 239 861 292 M865 34 C858 150 867 229 878 288 M904 33 C893 153 897 234 896 291 M862 316 L848 421 M883 318 L882 428 M902 315 L918 428" fill="none" stroke="#e6c291" stroke-width="5"/>
+    <path d="M845 288 Q871 302 904 285 L908 305 Q876 322 840 306Z" fill="#c5916c"/>
+    <path d="M798 24 H941" fill="none" stroke="#986347" stroke-width="7"/>
+    <!-- The sill and its soft contact shadows sit behind the cat. -->
+    <rect x="43" y="448" width="789" height="28" rx="9" fill="#d6a274" stroke="#986347" stroke-width="3"/>
+    <rect x="35" y="422" width="807" height="37" rx="10" fill="#fff0d1" stroke="#986347" stroke-width="3"/>
+    <path d="M49 431 H827" fill="none" stroke="#fff9e6" stroke-width="4"/>
+    <path d="M103 477 V508 Q103 515 112 512 L139 477 M716 477 V508 Q716 515 725 512 L752 477" fill="#daa878" stroke="#986347" stroke-width="3"/>
+    <ellipse cx="503" cy="448" rx="139" ry="13" fill="#bc8d63" opacity=".22"/>
+    <ellipse cx="155" cy="446" rx="56" ry="8" fill="#bc8d63" opacity=".2"/>
+    <!-- A little geranium on the sunny sill. -->
+    <g stroke="#587758" stroke-width="4">
+      <path d="M155 384 C148 353 165 328 156 303 M154 362 Q130 339 113 341 M155 345 Q185 324 194 307" fill="none"/>
+      <path d="M146 354 C119 358 106 343 106 330 C130 326 142 339 146 354Z" fill="#789866"/>
+      <path d="M158 338 C158 315 177 304 191 308 C191 327 178 339 158 338Z" fill="#8da773"/>
+      <path d="M155 323 C134 320 127 305 132 294 C150 296 159 307 155 323Z" fill="#789866"/>
+    </g>
+    <g fill="#db8b71">
+      <circle cx="151" cy="286" r="12"/><circle cx="166" cy="290" r="12"/><circle cx="165" cy="306" r="12"/><circle cx="147" cy="305" r="12"/>
+      <circle cx="157" cy="297" r="7" fill="#f7d48d"/>
+    </g>
+    <path d="M112 383 H198 L189 433 Q187 447 174 447 H136 Q123 447 121 433Z" fill="#c57858" stroke="#8c5942" stroke-width="3"/>
+    <rect x="107" y="378" width="96" height="17" rx="5" fill="#e0a17a" stroke="#8c5942" stroke-width="3"/>
+    <path d="M132 406 L136 431 M145 406 L149 431" fill="none" stroke="#e8ab81" stroke-width="4"/>
+    <!-- The tail rotates about its attachment point, never about the canvas. -->
+    <g>
+      <animateTransform attributeName="transform" type="rotate" values="-12 550 422;12 550 422;-12 550 422" keyTimes="0;.5;1" calcMode="spline" keySplines=".42 0 .58 1;.42 0 .58 1" dur="2s" repeatCount="indefinite"/>
+      <path d="M550 422 C636 451 695 421 699 367 C701 340 690 318 678 304" fill="none" stroke="#824e38" stroke-width="38"/>
+      <path d="M550 422 C636 451 695 421 699 367 C701 340 690 318 678 304" fill="none" stroke="#de8e4d" stroke-width="31"/>
+      <path d="M550 422 C636 451 695 421 699 367 C701 340 690 318 678 304" fill="none" stroke="#b46a40" stroke-width="31" stroke-dasharray="0 82 13 28 14 29 13 300" stroke-linecap="butt"/>
+      <path d="M686 320 Q682 311 678 304" fill="none" stroke="#f8d598" stroke-width="30"/>
+    </g>
+    <path d="M452 312 C429 337 422 372 414 421 Q396 454 429 456 L563 456 Q585 455 575 429 C570 385 574 346 547 316Z" fill="#df8e4d" stroke="#824e38" stroke-width="4"/>
+    <g clip-path="url(#chest)">
+      <path d="M464 324 Q497 340 533 324 Q555 358 542 385 Q528 418 496 425 Q463 412 450 380 Q442 350 464 324Z" fill="#f8d598"/>
+      <path d="M417 354 Q436 351 447 367 M412 379 Q432 374 440 387 M558 351 Q571 347 580 345 M560 373 Q575 371 583 367" fill="none" stroke="#b46a40" stroke-width="11"/>
+    </g>
+    <path d="M453 380 Q453 412 444 438 Q439 453 454 456 H477 Q490 454 488 443 L489 409 M530 380 Q527 414 538 438 Q545 454 530 456 H508 Q495 454 498 443 L499 409" fill="#eaa05b" stroke="#824e38" stroke-width="3.5"/>
+    <path d="M445 438 Q464 432 485 440 L486 447 Q486 455 475 455 H455 Q438 454 445 438 M502 440 Q520 433 538 439 Q545 454 531 455 H510 Q498 454 502 440" fill="#f8d598"/>
+    <path d="M458 448 V453 M469 448 V454 M514 448 V454 M525 448 V453" stroke="#b58155" stroke-width="2"/>
+    <!-- The left ear flicks once, then rests for the rest of the loop. -->
+    <g>
+      <animateTransform attributeName="transform" type="rotate" values="0 441 214;0 441 214;-9 441 214;5 441 214;0 441 214;0 441 214" keyTimes="0;.78;.815;.85;.88;1" dur="2s" repeatCount="indefinite"/>
+      <path d="M403 239 Q404 183 417 151 Q424 144 432 154 L473 204Z" fill="#ed9f5b" stroke="#824e38" stroke-width="4"/>
+      <path d="M417 215 L422 170 Q440 183 450 202Z" fill="#cf8670"/>
+    </g>
+    <path d="M533 204 L578 154 Q587 146 590 157 Q600 194 588 240Z" fill="#ed9f5b" stroke="#824e38" stroke-width="4"/>
+    <path d="M554 204 L578 173 L581 219Z" fill="#cf8670"/>
+    <path d="M423 208 C438 193 465 188 492 190 C523 188 552 195 567 210 C594 225 604 256 595 285 C586 313 552 329 496 329 C444 330 406 315 397 288 C387 264 397 230 423 208Z" fill="#ed9f5b" stroke="#824e38" stroke-width="4"/>
+    <path d="M433 215 Q453 203 469 204" fill="none" stroke="#f7bb76" stroke-width="7"/>
+    <path d="M468 193 L480 224 Q481 230 477 228 L456 198 M491 191 L502 225 Q504 231 507 226 L513 191 M538 198 L528 225 Q525 231 532 227 L550 204" fill="#b46a40"/>
+    <path d="M399 248 L421 256 M396 272 L417 275 M590 245 L570 255 M596 268 L575 273" fill="none" stroke="#b46a40" stroke-width="8"/>
+    <path d="M440 289 C442 273 474 267 495 283 C516 267 548 273 551 289 C555 308 528 320 497 320 C464 320 436 307 440 289Z" fill="#ffe0ab"/>
+    <!-- Eye groups squash around their own centres for one 0.15 s blink. -->
+    <path d="M432 263 Q447 268 462 262 M529 262 Q544 268 559 263" fill="none" stroke="#634334" stroke-width="3"/>
+    <g transform="translate(447 260)">
+      <g>
+        <animateTransform attributeName="transform" type="scale" values="1 1;1 1;1 .04;1 1;1 1" keyTimes="0;.61;.6475;.685;1" dur="2s" repeatCount="indefinite"/>
+        <path d="M-17 1 Q-14 -14 0 -14 Q15 -13 17 1 Q3 13 -10 7Z" fill="#fff3ca" stroke="#634334" stroke-width="3"/>
+        <ellipse cx="2" cy="-1" rx="5.5" ry="11" fill="#425047"/>
+        <circle cx="5" cy="-6" r="2.6" fill="#fff9e8"/>
+      </g>
+    </g>
+    <g transform="translate(544 260)">
+      <g>
+        <animateTransform attributeName="transform" type="scale" values="1 1;1 1;1 .04;1 1;1 1" keyTimes="0;.61;.6475;.685;1" dur="2s" repeatCount="indefinite"/>
+        <path d="M-17 1 Q-14 -13 0 -14 Q14 -14 17 1 Q10 12 -3 10Z" fill="#fff3ca" stroke="#634334" stroke-width="3"/>
+        <ellipse cx="-2" cy="-1" rx="5.5" ry="11" fill="#425047"/>
+        <circle cx="1" cy="-6" r="2.6" fill="#fff9e8"/>
+      </g>
+    </g>
+    <path d="M487 282 Q496 278 505 282 Q507 285 497 292 Q494 294 487 286Z" fill="#a56354"/>
+    <path d="M496 293 V298 M496 298 Q486 307 478 299 M496 298 Q506 307 514 299" fill="none" stroke="#824e38" stroke-width="2.8"/>
+    <g fill="#b58155">
+      <circle cx="461" cy="288" r="2"/><circle cx="467" cy="296" r="1.7"/><circle cx="530" cy="288" r="2"/><circle cx="524" cy="296" r="1.7"/>
+    </g>
+    <path d="M436 285 L377 276 M435 295 L371 297 M440 304 L385 317 M555 285 L614 275 M557 295 L620 297 M552 304 L606 317" fill="none" stroke="#824e38" stroke-width="2.5"/>
+  </g>
+</svg>

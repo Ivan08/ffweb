@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200" role="img" aria-labelledby="title desc">
+  <title id="title">Кошачья лапа</title>
+  <desc id="desc">Тёплый терракотовый отпечаток с четырьмя пальцами и светлой кремовой обводкой на прозрачном фоне.</desc>
+  <g fill="#bc754f" stroke="#ffe5b6" stroke-width="6" stroke-linejoin="round">
+    <ellipse cx="38" cy="86" rx="17" ry="24" transform="rotate(-27 38 86)"/>
+    <ellipse cx="77" cy="53" rx="18" ry="26" transform="rotate(-10 77 53)"/>
+    <ellipse cx="123" cy="53" rx="18" ry="26" transform="rotate(10 123 53)"/>
+    <ellipse cx="162" cy="86" rx="17" ry="24" transform="rotate(27 162 86)"/>
+    <path d="M100 94 C84 94 76 108 66 120 C55 132 43 141 47 156 C51 174 70 177 85 169 Q100 162 115 169 C130 177 149 174 153 156 C157 141 145 132 134 120 C124 108 116 94 100 94Z"/>
+  </g>
+</svg>

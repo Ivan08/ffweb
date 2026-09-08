@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520" role="img" aria-labelledby="architecture-title architecture-description" font-family="ui-sans-serif, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="architecture-title">Архитектура ffweb: одна команда, два способа выполнения</title>
+  <desc id="architecture-description">Браузер собирает команду с плейсхолдерами @in0 и @out. Нативная ветка передаёт аргументы локальному серверу ffweb на 127.0.0.1. На границе безопасности сервер подставляет настоящие пути и отклоняет прямые пути. Очередь задач запускает системный ffmpeg; ffprobe анализирует медиа. Файлы читаются с диска на месте, без копирования. Прогресс возвращается в браузер через server-sent events (SSE). Пунктирная ветка той же команды запускает ffmpeg.wasm во вкладке, если системный ffmpeg не найден. Единственное внешнее соединение — однократная загрузка wasm-ядра с CDN, затем используется кэш. Файлы не отправляются в сеть.</desc>
+
+  <text x="24" y="31" fill="#64748b" font-size="22" font-weight="700">Одна команда — два способа выполнения</text>
+  <text x="24" y="53" fill="#64748b" font-size="13">Локальная обработка · файлы остаются на вашем устройстве</text>
+
+  <!-- Три области; заливки полупрозрачны, общий фон отсутствует. -->
+  <g fill="none" stroke-width="1.5">
+    <rect x="20" y="78" width="274" height="360" rx="14" stroke="#3b82f6"/>
+    <rect x="348" y="78" width="308" height="360" rx="14" stroke="#0891b2"/>
+    <rect x="710" y="78" width="170" height="360" rx="14" stroke="#64748b"/>
+  </g>
+
+  <!-- Браузер. -->
+  <g fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round">
+    <rect x="38" y="96" width="18" height="15" rx="3"/>
+    <path d="M39 101H55"/>
+  </g>
+  <text x="64" y="110" fill="#3b82f6" font-size="18" font-weight="650">Браузер</text>
+  <text x="38" y="131" fill="#64748b" font-size="13">Вкладка · интерфейс ffweb</text>
+
+  <rect x="36" y="147" width="242" height="70" rx="8" fill="#3b82f6" fill-opacity="0.06"/>
+  <text x="50" y="168" fill="#64748b" font-size="13" font-weight="600">Просмотр и таймлайн</text>
+  <g fill="#64748b" font-size="10.5">
+    <text x="50" y="184">Видео</text>
+    <text x="50" y="197">Звук</text>
+    <text x="50" y="210">Наложения</text>
+  </g>
+  <g fill="#3b82f6">
+    <rect x="126" y="177" width="77" height="7" rx="2"/>
+    <rect x="207" y="177" width="57" height="7" rx="2"/>
+  </g>
+  <rect x="126" y="190" width="138" height="7" rx="2" fill="#0891b2"/>
+  <rect x="155" y="203" width="69" height="7" rx="2" fill="#64748b"/>
+  <path d="M184 174V213" fill="none" stroke="#64748b" stroke-width="1.5"/>
+
+  <path d="M157 218V230" fill="none" stroke="#3b82f6" stroke-width="1.7"/>
+  <path d="M153 227L157 234L161 227Z" fill="#3b82f6"/>
+  <rect x="36" y="234" width="242" height="63" rx="8" fill="#3b82f6" fill-opacity="0.07" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="50" y="256" fill="#3b82f6" font-size="14" font-weight="650">Команда собирается здесь</text>
+  <text x="50" y="282" fill="#64748b" font-size="16">-i @in0 … @out</text>
+
+  <!-- Запасная ветка начинается у той же команды. -->
+  <path d="M52 298V344" fill="none" stroke="#0891b2" stroke-width="1.8" stroke-dasharray="5 5" stroke-linecap="round"/>
+  <path d="M48 342L52 350L56 342Z" fill="#0891b2"/>
+  <text x="66" y="328" fill="#0891b2" font-size="12.5">если ffmpeg не найден</text>
+  <rect x="36" y="350" width="242" height="69" rx="8" fill="#0891b2" fill-opacity="0.05" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="5 5"/>
+  <text x="50" y="376" fill="#0891b2" font-size="17" font-weight="650">ffmpeg.wasm</text>
+  <text x="50" y="400" fill="#64748b" font-size="12.5">Выполнение прямо во вкладке</text>
+
+  <!-- Сервер и явно обозначенная граница безопасности. -->
+  <text x="366" y="110" fill="#0891b2" font-size="18" font-weight="650">Локальный сервер</text>
+  <text x="366" y="132" fill="#64748b" font-size="14" font-weight="600">ffweb · 127.0.0.1</text>
+  <text x="366" y="165" fill="#64748b" font-size="13">Один самодостаточный бинарник</text>
+  <text x="366" y="185" fill="#64748b" font-size="13">на Rust · только локальный доступ</text>
+
+  <rect x="364" y="222" width="276" height="110" rx="8" fill="#0891b2" fill-opacity="0.06" stroke="#0891b2" stroke-width="2"/>
+  <g fill="none" stroke="#0891b2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="379" y="237" width="11" height="10" rx="2"/>
+    <path d="M382 237V234A2.5 2.5 0 0 1 387 234V237"/>
+  </g>
+  <text x="398" y="245" fill="#0891b2" font-size="14" font-weight="650">Граница безопасности</text>
+  <text x="378" y="270" fill="#64748b" font-size="13">@in0 / @out → пути на диске</text>
+  <text x="378" y="293" fill="#64748b" font-size="13">Пути подставляет сервер.</text>
+  <text x="378" y="316" fill="#64748b" font-size="13">Прямые пути отклоняются.</text>
+
+  <text x="321" y="266" fill="#64748b" font-size="11.5" text-anchor="middle">команда</text>
+  <path d="M279 279H357" fill="none" stroke="#3b82f6" stroke-width="1.8"/>
+  <path d="M355 275L363 279L355 283Z" fill="#3b82f6"/>
+
+  <path d="M502 333V344" fill="none" stroke="#3b82f6" stroke-width="1.8"/>
+  <path d="M498 342L502 350L506 342Z" fill="#3b82f6"/>
+  <rect x="364" y="350" width="276" height="69" rx="8" fill="#3b82f6" fill-opacity="0.05" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="378" y="376" fill="#3b82f6" font-size="15" font-weight="650">Очередь задач</text>
+  <text x="378" y="400" fill="#64748b" font-size="12.5">Запуск нативной команды</text>
+
+  <!-- Системные инструменты работают с файлами на месте. -->
+  <text x="728" y="110" fill="#64748b" font-size="18" font-weight="650">Система</text>
+  <text x="728" y="131" fill="#64748b" font-size="13">На вашем компьютере</text>
+
+  <rect x="726" y="183" width="138" height="106" rx="8" fill="#64748b" fill-opacity="0.05" stroke="#64748b" stroke-width="1.3"/>
+  <g fill="none" stroke="#64748b" stroke-width="1.5">
+    <ellipse cx="795" cy="201" rx="11" ry="4"/>
+    <path d="M784 201V212C784 218 806 218 806 212V201"/>
+  </g>
+  <text x="795" y="237" fill="#64748b" font-size="13" font-weight="650" text-anchor="middle">Файлы на диске</text>
+  <text x="795" y="258" fill="#64748b" font-size="12" text-anchor="middle">читаются на месте</text>
+  <text x="795" y="276" fill="#64748b" font-size="12" text-anchor="middle">без копирования</text>
+
+  <path d="M795 297V342" fill="none" stroke="#3b82f6" stroke-width="1.8"/>
+  <path d="M791 298L795 290L799 298Z M791 341L795 349L799 341Z" fill="#3b82f6"/>
+  <text x="807" y="323" fill="#64748b" font-size="11.5">доступ</text>
+  <rect x="726" y="350" width="138" height="69" rx="8" fill="#3b82f6" fill-opacity="0.05" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="740" y="376" fill="#3b82f6" font-size="17" font-weight="650">ffmpeg</text>
+  <text x="740" y="400" fill="#64748b" font-size="12.5">ffprobe · анализ</text>
+
+  <text x="683" y="369" fill="#64748b" font-size="11.5" text-anchor="middle">запуск</text>
+  <path d="M641 380H719" fill="none" stroke="#3b82f6" stroke-width="1.8"/>
+  <path d="M717 376L725 380L717 384Z" fill="#3b82f6"/>
+
+  <!-- Обратный поток событий направлен в область браузера. -->
+  <path d="M502 420V463H158V446" fill="none" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M154 447L158 439L162 447Z" fill="#64748b"/>
+  <text x="330" y="455" fill="#64748b" font-size="12.5" text-anchor="middle">Прогресс · события сервера (SSE)</text>
+
+  <!-- Единственная внешняя загрузка: только ядро, по стрелке в браузер. -->
+  <text x="24" y="492" fill="#8191a4" font-size="12" font-weight="600">CDN</text>
+  <path d="M54 488H68V427" fill="none" stroke="#8191a4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M64 428L68 420L72 428Z" fill="#8191a4"/>
+  <text x="84" y="491" fill="#8191a4" font-size="12">Ядро wasm: один раз, потом из кэша</text>
+  <text x="84" y="510" fill="#64748b" font-size="12">Файлы не отправляются в сеть.</text>
+</svg>

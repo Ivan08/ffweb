@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="180" viewBox="0 0 720 180" role="img" aria-labelledby="logo-title logo-description" font-family="ui-sans-serif, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="logo-title">ffweb — локальный веб-интерфейс к ffmpeg</title>
+  <desc id="logo-description">Окно браузера с перфорацией киноплёнки и кнопкой воспроизведения рядом с названием ffweb.</desc>
+
+  <!-- Окно браузера и кадр плёнки образуют один знак. -->
+  <g fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="48" y="30" width="142" height="120" rx="16"/>
+    <path d="M49 59H189"/>
+    <rect x="71" y="72" width="96" height="64" rx="5" stroke-width="2"/>
+  </g>
+  <g fill="#3b82f6">
+    <circle cx="64" cy="45" r="3"/>
+    <circle cx="76" cy="45" r="3"/>
+    <circle cx="88" cy="45" r="3"/>
+    <rect x="56" y="77" width="7" height="9" rx="1.5"/>
+    <rect x="56" y="99" width="7" height="9" rx="1.5"/>
+    <rect x="56" y="121" width="7" height="9" rx="1.5"/>
+    <rect x="175" y="77" width="7" height="9" rx="1.5"/>
+    <rect x="175" y="99" width="7" height="9" rx="1.5"/>
+    <rect x="175" y="121" width="7" height="9" rx="1.5"/>
+  </g>
+  <path d="M109 85L139 104L109 123Z" fill="#0891b2" stroke="#0891b2" stroke-width="3" stroke-linejoin="round"/>
+
+  <text x="224" y="112" fill="#64748b" font-size="94" font-weight="750" letter-spacing="-4">ffweb</text>
+  <text x="229" y="148" fill="#64748b" font-size="22">локальный веб-интерфейс к ffmpeg</text>
+</svg>

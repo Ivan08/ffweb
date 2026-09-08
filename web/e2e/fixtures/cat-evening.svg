@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Кот спит — вечер</title>
+  <desc id="desc">Тот же рыжий кот свернулся на мягкой подушке у окна. Его бок тихо дышит, кончик хвоста иногда дёргается; звёзды мерцают, а над ушком плывут zZz. Цикл — две секунды.</desc>
+  <defs>
+    <clipPath id="frame"><rect width="960" height="540"/></clipPath>
+    <clipPath id="window"><rect x="81" y="62" width="558" height="289" rx="12"/></clipPath>
+    <clipPath id="body"><path d="M239 403 C216 350 247 295 304 277 C375 249 480 258 527 309 C556 340 558 391 533 421 Q403 454 275 435Z"/></clipPath>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#14253f"/><stop offset="1" stop-color="#344a69"/>
+    </linearGradient>
+    <radialGradient id="lamplight">
+      <stop stop-color="#ffc773" stop-opacity=".26"/><stop offset="1" stop-color="#ffc773" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g clip-path="url(#frame)" stroke-linecap="round" stroke-linejoin="round">
+    <rect width="960" height="540" fill="#30334d"/>
+    <rect y="473" width="960" height="67" fill="#252b41"/>
+    <path d="M0 478 H960" stroke="#41415a" stroke-width="3"/>
+    <circle cx="800" cy="263" r="261" fill="url(#lamplight)"/>
+    <rect x="60" y="41" width="600" height="336" rx="23" fill="#25293e"/>
+    <rect x="59" y="40" width="600" height="326" rx="22" fill="#675667" stroke="#1d273c" stroke-width="4"/>
+    <rect x="73" y="54" width="574" height="304" rx="16" fill="#a58b8b"/>
+    <g clip-path="url(#window)">
+      <rect x="81" y="62" width="558" height="289" fill="url(#sky)"/>
+      <circle cx="158" cy="126" r="44" fill="#8296ab" opacity=".09"/>
+      <path d="M168 91 C137 88 119 121 137 145 C151 165 182 164 197 143 C170 151 150 116 168 91Z" fill="#f6deb1"/>
+      <!-- Different opacity curves keep the stars from blinking in unison. -->
+      <g fill="#fff0c5">
+        <path d="M259 91 L262 99 L270 102 L262 105 L259 113 L256 105 L248 102 L256 99Z">
+          <animate attributeName="opacity" values=".3;1;.45;.7;.3" keyTimes="0;.25;.5;.75;1" dur="2s" repeatCount="indefinite"/>
+        </path>
+        <path d="M449 95 L452 104 L461 107 L452 110 L449 119 L446 110 L437 107 L446 104Z">
+          <animate attributeName="opacity" values="1;.35;.7;.3;1" keyTimes="0;.2;.5;.8;1" dur="2s" repeatCount="indefinite"/>
+        </path>
+        <path d="M584 142 L587 150 L595 153 L587 156 L584 164 L581 156 L573 153 L581 150Z">
+          <animate attributeName="opacity" values=".45;.25;1;.6;.45" keyTimes="0;.2;.55;.8;1" dur="2s" repeatCount="indefinite"/>
+        </path>
+        <path d="M381 198 L384 204 L390 207 L384 210 L381 216 L378 210 L372 207 L378 204Z">
+          <animate attributeName="opacity" values=".8;.3;.6;1;.8" keyTimes="0;.3;.55;.8;1" dur="2s" repeatCount="indefinite"/>
+        </path>
+        <circle cx="317" cy="149" r="3">
+          <animate attributeName="opacity" values=".25;.8;1;.25" keyTimes="0;.3;.55;1" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="207" cy="211" r="3">
+          <animate attributeName="opacity" values="1;.2;.65;1" keyTimes="0;.4;.75;1" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="509" cy="192" r="2.7">
+          <animate attributeName="opacity" values=".4;1;.2;.4" keyTimes="0;.4;.7;1" dur="2s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="607" cy="88" r="2"/><circle cx="397" cy="80" r="2"/><circle cx="108" cy="216" r="2"/><circle cx="547" cy="115" r="2"/><circle cx="288" cy="232" r="2"/>
+      </g>
+      <path d="M81 300 C165 278 237 292 311 285 C420 271 523 292 639 270 V351 H81Z" fill="#263952"/>
+      <path d="M98 307 H133 V286 L172 253 L213 286 V307 H259 V323 H282 V303 L320 274 L358 303 V351 H98Z" fill="#1e3048"/>
+      <path d="M459 316 H475 V294 H505 V278 L540 252 L577 278 V304 H613 V285 H639 V351 H459Z" fill="#1e3048"/>
+      <g fill="#efbf82" opacity=".75">
+        <rect x="157" y="294" width="10" height="15" rx="2"/><rect x="181" y="294" width="10" height="15" rx="2"/>
+        <rect x="316" y="314" width="10" height="13" rx="2"/><rect x="526" y="290" width="10" height="16" rx="2"/><rect x="549" y="290" width="10" height="16" rx="2"/>
+      </g>
+    </g>
+    <rect x="81" y="62" width="558" height="289" rx="12" fill="none" stroke="#504757" stroke-width="3"/>
+    <path d="M347 62 H364 V353 H347Z" fill="#756371"/>
+    <path d="M348 63 H354 V349 H348Z" fill="#a58b8b"/>
+    <rect x="49" y="353" width="621" height="21" rx="7" fill="#8c727e" stroke="#25293e" stroke-width="3"/>
+    <path d="M64 357 H654" stroke="#b99a98" stroke-width="3"/>
+    <!-- The lamp is a warm pool of colour against the blue room. -->
+    <path d="M730 267 L631 469 H947 L867 267Z" fill="#f4bb6e" opacity=".07"/>
+    <ellipse cx="797" cy="470" rx="86" ry="12" fill="#1a2135" opacity=".4"/>
+    <path d="M788 264 H805 V451 H788Z" fill="#ad815e" stroke="#302d3a" stroke-width="3"/>
+    <path d="M793 284 V436" stroke="#e4b77d" stroke-width="3"/>
+    <path d="M780 442 Q798 434 814 442 L849 456 Q859 467 843 469 H750 Q736 466 746 456Z" fill="#b28662" stroke="#302d3a" stroke-width="3"/>
+    <path d="M764 457 H829" stroke="#e4b77d" stroke-width="3"/>
+    <path d="M749 165 Q797 154 846 165 L889 264 Q896 277 880 281 H714 Q699 277 706 264Z" fill="#e9b574" stroke="#4c3b3c" stroke-width="4"/>
+    <path d="M763 171 L742 260 M788 171 L781 260 M814 171 L822 260 M835 171 L858 260" fill="none" stroke="#f5ce90" stroke-width="4"/>
+    <ellipse cx="797" cy="270" rx="90" ry="12" fill="#ffe2a1" stroke="#4c3b3c" stroke-width="3"/>
+    <path d="M847 281 V323" stroke="#c39972" stroke-width="2"/>
+    <circle cx="847" cy="328" r="5" fill="#eac48a"/>
+    <!-- A well-loved oval cushion. -->
+    <ellipse cx="383" cy="481" rx="295" ry="22" fill="#1b2237" opacity=".6"/>
+    <path d="M119 422 C133 395 232 390 375 390 C527 390 634 397 653 423 L650 456 C643 486 551 496 379 496 C212 496 120 485 113 459Z" fill="#775c77" stroke="#282b42" stroke-width="4"/>
+    <ellipse cx="383" cy="429" rx="268" ry="43" fill="#a17c91" stroke="#282b42" stroke-width="4"/>
+    <path d="M127 436 C173 472 583 479 639 438" fill="none" stroke="#c29aab" stroke-width="3"/>
+    <path d="M146 466 C235 495 542 495 621 465" fill="none" stroke="#a48198" stroke-width="2" stroke-dasharray="4 8"/>
+    <ellipse cx="381" cy="432" rx="200" ry="28" fill="#614a64" opacity=".35"/>
+    <!-- Breathing is anchored at the cushion; the head stays nestled down. -->
+    <g transform="translate(398 424)">
+      <g>
+        <animateTransform attributeName="transform" type="scale" values="1 1;1.014 1.035;1 1" keyTimes="0;.5;1" calcMode="spline" keySplines=".42 0 .58 1;.42 0 .58 1" dur="2s" repeatCount="indefinite"/>
+        <g transform="translate(-398 -424)">
+          <path d="M239 403 C216 350 247 295 304 277 C375 249 480 258 527 309 C556 340 558 391 533 421 Q403 454 275 435Z" fill="#d88d55" stroke="#704934" stroke-width="4"/>
+          <g clip-path="url(#body)">
+            <path d="M272 398 C319 338 426 318 490 363 Q522 389 513 433 Q378 465 272 426Z" fill="#efc28b"/>
+            <path d="M324 273 Q314 296 324 313 M360 263 Q347 284 358 304 M398 262 Q386 282 396 299 M470 276 Q457 291 461 307 M503 295 Q487 310 493 325" fill="none" stroke="#aa663f" stroke-width="13"/>
+            <path d="M263 328 Q276 302 297 294" fill="none" stroke="#eeb17a" stroke-width="8"/>
+          </g>
+        </g>
+      </g>
+    </g>
+    <!-- The curved tail wraps around the sleeping body. -->
+    <path d="M500 336 C526 350 546 377 548 397 C552 432 524 448 490 453 Q427 466 371 443" fill="none" stroke="#704934" stroke-width="46"/>
+    <path d="M500 336 C526 350 546 377 548 397 C552 432 524 448 490 453 Q427 466 371 443" fill="none" stroke="#df945a" stroke-width="38"/>
+    <path d="M500 336 C526 350 546 377 548 397 C552 432 524 448 490 453 Q427 466 371 443" fill="none" stroke="#ae6943" stroke-width="38" stroke-linecap="butt" stroke-dasharray="0 30 14 28 15 34 14 34 15 250"/>
+    <g>
+      <animateTransform attributeName="transform" type="rotate" values="0 371 443;0 371 443;-11 371 443;5 371 443;0 371 443;0 371 443" keyTimes="0;.72;.77;.81;.86;1" dur="2s" repeatCount="indefinite"/>
+      <path d="M371 443 Q338 434 317 414" fill="none" stroke="#704934" stroke-width="45"/>
+      <path d="M371 443 Q338 434 317 414" fill="none" stroke="#df945a" stroke-width="37"/>
+      <path d="M331 426 Q323 421 317 414" fill="none" stroke="#f8d598" stroke-width="36"/>
+    </g>
+    <!-- Cream paws, pink inner ears and the same forehead stripes as by day. -->
+    <path d="M281 414 C309 399 341 409 356 422 Q364 435 348 440 L288 440Z" fill="#f3cd96" stroke="#704934" stroke-width="3"/>
+    <path d="M332 429 L339 436 M321 431 L326 438" stroke="#b0855e" stroke-width="2"/>
+    <path d="M204 367 Q185 342 182 315 Q183 309 190 313 L243 340Z" fill="#df945a" stroke="#704934" stroke-width="4"/>
+    <path d="M208 351 L195 329 L226 343Z" fill="#c5806d"/>
+    <path d="M271 348 L295 319 Q301 313 305 323 L320 375Z" fill="#df945a" stroke="#704934" stroke-width="4"/>
+    <path d="M291 345 L298 333 L306 357Z" fill="#c5806d"/>
+    <path d="M211 351 C236 331 277 329 302 350 C315 361 322 374 322 391 C321 420 298 438 265 440 C226 442 187 423 186 393 C185 376 194 361 211 351Z" fill="#e8a063" stroke="#704934" stroke-width="4"/>
+    <path d="M234 337 L244 359 Q247 364 249 359 L249 334 M260 334 L269 359 Q272 364 274 358 L275 337 M290 342 L286 362 Q284 367 289 364 L302 351" fill="#ae6943"/>
+    <path d="M191 382 L209 387 M192 401 L209 403 M316 378 L302 385" stroke="#ae6943" stroke-width="7"/>
+    <path d="M225 399 C232 386 252 389 263 398 C277 385 299 394 302 408 Q301 433 264 435 Q227 433 225 399Z" fill="#ffe0ab"/>
+    <path d="M210 379 Q223 394 239 382 M270 379 Q283 393 299 381" fill="none" stroke="#654536" stroke-width="3.5"/>
+    <path d="M217 388 L214 392 M290 388 L293 392" stroke="#654536" stroke-width="2"/>
+    <path d="M256 399 Q264 396 272 400 Q272 404 264 409 Q259 407 256 402Z" fill="#a56354"/>
+    <path d="M264 410 V414 Q271 420 278 414 M264 414 Q256 419 250 414" fill="none" stroke="#704934" stroke-width="2.5"/>
+    <path d="M225 406 L173 399 M225 414 L171 416 M298 405 L336 397 M299 413 L343 414" fill="none" stroke="#704934" stroke-width="2.2"/>
+    <!-- Letter outlines avoid any font dependency. All motion returns to zero. -->
+    <g fill="none" stroke="#f5deb4" stroke-width="3.5">
+      <g opacity="0">
+        <animate attributeName="opacity" values="0;.85;.85;0;0" keyTimes="0;.15;.65;.9;1" dur="2s" repeatCount="indefinite"/>
+        <animateTransform attributeName="transform" type="translate" values="0 0;4 -7;-2 -30;-4 -38;0 0" keyTimes="0;.15;.65;.9;1" dur="2s" repeatCount="indefinite"/>
+        <path d="M211 296 H225 L211 310 H225"/>
+      </g>
+      <g opacity=".85">
+        <animate attributeName="opacity" values=".85;.5;0;0;.85" keyTimes="0;.2;.4;.65;1" dur="2s" repeatCount="indefinite"/>
+        <animateTransform attributeName="transform" type="translate" values="0 0;4 -12;6 -28;-3 10;0 0" keyTimes="0;.2;.4;.65;1" dur="2s" repeatCount="indefinite"/>
+        <path d="M242 252 H263 L242 274 H263"/>
+      </g>
+      <g opacity=".45" stroke-width="2.5">
+        <animate attributeName="opacity" values=".45;0;0;.75;.45" keyTimes="0;.2;.45;.75;1" dur="2s" repeatCount="indefinite"/>
+        <animateTransform attributeName="transform" type="translate" values="0 0;3 -12;-5 22;-3 12;0 0" keyTimes="0;.2;.45;.75;1" dur="2s" repeatCount="indefinite"/>
+        <path d="M280 215 H292 L280 228 H292"/>
+      </g>
+    </g>
+  </g>
+</svg>

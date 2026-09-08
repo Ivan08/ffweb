@@ -1,0 +1,15 @@
+/target
+node_modules
+*.tsbuildinfo
+
+# The built interface is generated from web/ and rebuilt by build.rs. Keeping it
+# here would put a fingerprinted diff in every commit that touches the frontend.
+# Released binaries carry it inside; a source build needs Node.js.
+/assets/dist
+
+# Runtime output, not source.
+/ffweb-out
+.DS_Store
+
+# Artefacts from a browser driving the app.
+/.playwright-mcp
