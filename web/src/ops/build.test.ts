@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildProject, containerFor, outputNameFor } from '../core/build'
-import { emptyProject } from '../core/project'
+import { emptyProject, type Project } from '../core/project'
 import {
   argAfter,
   build,
@@ -446,6 +446,161 @@ describe('export targets', () => {
   })
 })
 
+describe('exporting only the marked windows', () => {
+  const marked = (ranges: Array<[number, number]>, patch: Partial<Project> = {}) =>
+    build(
+      project({
+        ranges: ranges.map(([from, to], index) => ({ uid: `r${index}`, from, to })),
+        ...patch,
+      }),
+    ).args
+
+  it('opens the source once per window, at the moment it begins', () => {
+    // PRIMARY runs thirty seconds. Two windows are two inputs, each seeking to
+    // its own start, and the graph joins them.
+    const args = marked([[2, 5], [12, 16]])
+    expect(args.filter((arg) => arg === '-i')).toHaveLength(2)
+    expect(args.join(' ')).toContain('-ss 2.000 -t 3.000 -i @in0')
+    expect(args.join(' ')).toContain('-ss 12.000 -t 4.000 -i @in1')
+    expect(graph(args)).toContain('concat=n=2')
+  })
+
+  it('needs no length bound, because the join is already the right length', () => {
+    // Each window is opened for exactly as long as it lasts, so what comes out
+    // of the concat is the result — there is nothing left to trim off the end.
+    const args = marked([[2, 5], [12, 16]])
+    const afterGraph = args.slice(args.indexOf('-filter_complex'))
+    expect(afterGraph).not.toContain('-t')
+  })
+
+  it('builds the command it always did when nothing is marked', () => {
+    // The default has to stay the flat, fast path: one seek, one filter chain,
+    // and the chance of a stream copy.
+    const plain = build(project()).args
+    expect(plain).not.toContain('-filter_complex')
+  })
+
+  it('cuts a window that falls across a join into a piece of each clip', () => {
+    // One window, two files: the tail of the first and the head of the second.
+    const args = marked([[25, 35]], { clips: [clip(PRIMARY), clip(SECOND)] })
+    // Five seconds off the end of the first, five off the start of the second.
+    // The second needs no seek, because it is taken from its beginning.
+    expect(args.join(' ')).toContain('-ss 25.000 -t 5.000 -i @in0')
+    expect(args.join(' ')).toContain('-t 5.000 -i @in1')
+    expect(graph(args)).toContain('concat=n=2')
+  })
+
+  it('moves an overlay to where it lands in the result', () => {
+    // The overlay sits on the workspace from second 13 to 15. The window
+    // before it contributes three seconds, and it begins one second into its
+    // own window, so in the result it runs from four to six.
+    const args = marked([[2, 5], [12, 16]], {
+      overlays: [overlay('o1', LOGO, { from: 13, to: 15 })],
+    })
+    expect(graph(args)).toContain("enable='between(t,4.000,6.000)'")
+  })
+
+  it('moves a laid sound the same way', () => {
+    const args = marked([[2, 5], [12, 16]], {
+      sounds: [sound('s1', MUSIC, { at: 13, in: 0, out: 4 })],
+    })
+    expect(graph(args)).toContain('adelay=delays=4000:all=1')
+  })
+
+  it('grabs the still from where the playhead lands in the result', () => {
+    const args = marked([[2, 5], [12, 16]], { target: 'still', still: 13 })
+    expect(graph(args)).toContain("select='gte(t\\,4.000)'")
+  })
+})
+
+describe('clips that dissolve into one another', () => {
+  const dissolved = (patch: Partial<Project> = {}) =>
+    build(
+      project({
+        clips: [clip(PRIMARY), clip(SECOND, { transition: { duration: 1, kind: 'fade' } })],
+        ...patch,
+      }),
+    ).args
+
+  it('starts the transition where the first clip is nearly over', () => {
+    // `xfade` measures its offset on the first input's own timeline, and it is
+    // where the transition *begins*: a whole clip minus the overlap. Off by
+    // the overlap and the join happens after the picture has already ended,
+    // which ffmpeg accepts and which shows as a black gap.
+    // PRIMARY runs 30 seconds, so a one-second dissolve starts at 29.
+    expect(graph(dissolved())).toContain('xfade=transition=fade:duration=1.000:offset=29.000')
+  })
+
+  it('carries the accumulated length along a run of them', () => {
+    // The second join is measured from the end of the *result* of the first,
+    // which is shorter than the two clips put together. Adding up the raw
+    // lengths instead puts every join after the first in the wrong place.
+    const args = build(
+      project({
+        clips: [
+          clip(PRIMARY),
+          clip(SECOND, { transition: { duration: 1, kind: 'fade' } }),
+          clip(SILENT, { transition: { duration: 2, kind: 'wipeleft' } }),
+        ],
+      }),
+    ).args
+    // 30, then 30 + 12 - 1 = 41, so the second transition starts at 39.
+    expect(graph(args)).toContain('duration=1.000:offset=29.000')
+    expect(graph(args)).toContain('duration=2.000:offset=39.000')
+  })
+
+  it('joins the sound without an offset, because acrossfade has none', () => {
+    expect(graph(dissolved())).toContain('acrossfade=d=1.000:c1=tri:c2=tri')
+    expect(graph(dissolved())).not.toContain('acrossfade=d=1.000:offset')
+  })
+
+  it('pins the format and the timebase both sides have to agree on', () => {
+    // Neither is settled by the canvas filters, and the timebase only bites on
+    // the second join of a chain — where a clip's meets the microseconds the
+    // one before handed on.
+    expect(graph(dissolved())).toContain('format=yuv420p,settb=AVTB')
+  })
+
+  it('bounds the result, so the picture and the sound cannot drift apart', () => {
+    // The video length comes from the model and the audio from what the
+    // filters actually produced; a long chain accumulates the difference.
+    //
+    // Read from the end: `-t` also appears before each input, where it trims
+    // the source, and this is the one that governs the output.
+    const args = dissolved()
+    const last = args.lastIndexOf('-t')
+    // 30 and 12, overlapping by one.
+    expect(args[last + 1]).toBe('41.000')
+    expect(last).toBeGreaterThan(args.indexOf('-filter_complex'))
+  })
+
+  it('joins the repeats of a clip before dissolving it into the next', () => {
+    // A transition is between clips. A clip dissolving into another showing of
+    // itself is not what "play it three times" means.
+    const args = build(
+      project({
+        clips: [
+          clip(PRIMARY, { loop: 2 }),
+          clip(SECOND, { transition: { duration: 1, kind: 'fade' } }),
+        ],
+      }),
+    ).args
+    const chunks = (graph(args) ?? '').split(';')
+    const fades = chunks.filter((chunk) => chunk.includes('xfade='))
+    expect(fades).toHaveLength(1)
+    expect(chunks.some((chunk) => chunk.includes('concat=n=2:v=1:a=0'))).toBe(true)
+  })
+
+  it('leaves an ordinary join exactly as it was', () => {
+    // No transition anywhere means the single N-way concat, and none of the
+    // pinning a dissolve needs.
+    const plain = build(project({ clips: [clip(PRIMARY), clip(SECOND)] })).args
+    expect(graph(plain)).toContain('concat=n=2:v=1:a=1')
+    expect(graph(plain)).not.toContain('xfade')
+    expect(graph(plain)).not.toContain('settb')
+  })
+})
+
 describe('subtitles', () => {
   it('burns them in through a placeholder, never a path', () => {
     const { args } = build(
@@ -453,6 +608,112 @@ describe('subtitles', () => {
     )
     expect(graph(args)).toContain('subtitles=@in1')
     expect(graph(args)).toContain("force_style='FontSize=28'")
+  })
+
+  it('muxes a soft track as a stream of its own', () => {
+    // The one thing mapped straight from an input rather than from a pad the
+    // graph made: it is copied through, not painted on.
+    const { args } = build(project({ subtitles: { fileId: SUBS.id, mode: 'soft', fontSize: 28 } }))
+    expect(args).toContain('-map')
+    expect(argAfter(args, '-c:s')).toBe('mov_text')
+    expect(args.join(' ')).toContain('-map 1:s')
+    // Nothing is painted onto the picture.
+    expect(graph(args) ?? '').not.toContain('subtitles=')
+  })
+
+  it('spells the subtitle codec the way each container wants it', () => {
+    // Every container names the same subtitles differently, and using another
+    // one's spelling is refused by the muxer rather than ignored.
+    const soft = (container: string) =>
+      argAfter(
+        build(project({ container, subtitles: { fileId: SUBS.id, mode: 'soft', fontSize: 20 } })).args,
+        '-c:s',
+      )
+    expect(soft('mp4')).toBe('mov_text')
+    expect(soft('mov')).toBe('mov_text')
+    expect(soft('mkv')).toBe('srt')
+    expect(soft('webm')).toBe('webvtt')
+  })
+
+  it('leaves the file unopened when the container cannot carry it', () => {
+    // AVI has nowhere to put a subtitle track. Opening the file anyway would
+    // leave ffmpeg holding an input that nothing maps.
+    const { args } = build(
+      project({ container: 'avi', subtitles: { fileId: SUBS.id, mode: 'soft', fontSize: 20 } }),
+    )
+    expect(args).not.toContain('-c:s')
+    expect(args.filter((arg) => arg === '-i')).toHaveLength(1)
+  })
+
+  it('leaves the file unopened when there is no picture to carry it either', () => {
+    // Burning needs a picture. Exporting sound alone used to open the subtitle
+    // file regardless and then never map it.
+    const { args } = build(
+      project({ target: 'audio', subtitles: { fileId: SUBS.id, mode: 'burn', fontSize: 20 } }),
+    )
+    expect(args.filter((arg) => arg === '-i')).toHaveLength(1)
+  })
+})
+
+describe('choosing the encoder', () => {
+  const encoded = (encoder: string, container = 'mp4') =>
+    build(project({ container, quality: { ...emptyProject().quality, encoder } })).args
+
+  it('writes with the container\'s own encoder until told otherwise', () => {
+    expect(encoded('auto')).toContain('libx264')
+  })
+
+  it('states quality the way each family spells it, and only once', () => {
+    // Every one of these has its own word for "this quality", and passing two
+    // is not an error ffmpeg reports — it takes one and ignores the other.
+    const nvenc = encoded('h264_nvenc')
+    expect(nvenc).toContain('h264_nvenc')
+    expect(argAfter(nvenc, '-cq')).toBe('26')
+    expect(nvenc).not.toContain('-crf')
+
+    const qsv = encoded('h264_qsv')
+    expect(argAfter(qsv, '-global_quality')).toBe('26')
+    expect(qsv).not.toContain('-crf')
+
+    const apple = encoded('h264_videotoolbox')
+    expect(apple).toContain('-q:v')
+    expect(apple).not.toContain('-crf')
+  })
+
+  it('puts nvenc into constant-quality mode rather than letting -cq be ignored', () => {
+    // Without `-b:v 0` nvenc caps itself at a default bitrate and the quality
+    // setting does nothing at all — silently, and only visible in the result.
+    const args = encoded('h264_nvenc')
+    expect(argAfter(args, '-b:v')).toBe('0')
+    expect(argAfter(args, '-rc')).toBe('vbr')
+  })
+
+  it('translates the speed preset instead of passing on a name nvenc lacks', () => {
+    expect(argAfter(encoded('h264_nvenc'), '-preset')).toBe('p4')
+    const slow = build(
+      project({ quality: { ...emptyProject().quality, encoder: 'h264_nvenc', preset: 'veryslow' } }),
+    ).args
+    expect(argAfter(slow, '-preset')).toBe('p7')
+  })
+
+  it('tags HEVC so the file plays on the machines that mind', () => {
+    // An untagged HEVC track in an Apple container plays in nothing Apple
+    // makes, and looks like a corrupt file rather than a missing tag.
+    expect(encoded('hevc_nvenc', 'mp4').join(' ')).toContain('-tag:v hvc1')
+    expect(encoded('hevc_nvenc', 'mov').join(' ')).toContain('-tag:v hvc1')
+    expect(encoded('hevc_nvenc', 'mkv').join(' ')).not.toContain('-tag:v')
+  })
+
+  it('falls back to the container\'s own when it cannot take that codec', () => {
+    // The choice outlives the container it was made for: switching to WebM
+    // must not produce a command ffmpeg refuses.
+    const args = encoded('h264_nvenc', 'webm')
+    expect(args).toContain('libvpx-vp9')
+    expect(args).not.toContain('h264_nvenc')
+  })
+
+  it('ignores an encoder that does not exist', () => {
+    expect(encoded('h264_madeup')).toContain('libx264')
   })
 })
 

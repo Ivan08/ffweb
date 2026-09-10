@@ -45,6 +45,9 @@ export function Toggle({
         type="button"
         role="switch"
         aria-checked={checked}
+        // A wrapping <label> does not name a button, so without this the
+        // switch is announced with no hint of what it turns on.
+        aria-label={label}
         onClick={() => onChange(!checked)}
         className={clsx(
           'relative h-[18px] w-8 shrink-0 rounded-full border transition-colors',

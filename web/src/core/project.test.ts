@@ -21,6 +21,12 @@ import {
   emptyProject,
   isTrivial,
   moveClip,
+  canSplit,
+  exportDuration,
+  exportPieces,
+  exportWindows,
+  splitAt,
+  type Project,
   fileOverlay,
   resolveInputs,
   sourceLength,
@@ -50,9 +56,164 @@ const file = (id: string, duration: number, hasAudio = true): MediaFile => ({
   },
 })
 
-const clip = (patch: Partial<Clip> = {}): Clip => ({
-  ...clipOf('c1', file('a', 10)),
+const clip = (patch: Partial<Clip> = {}, uid = 'c1'): Clip => ({
+  ...clipOf(uid, file('a', 10)),
   ...patch,
+})
+
+describe('what of the workspace reaches the result', () => {
+  const withRanges = (clips: Clip[], ranges: Array<[number, number]>): Project => ({
+    ...emptyProject(),
+    clips,
+    ranges: ranges.map(([from, to], index) => ({ uid: `r${index}`, from, to })),
+  })
+
+  it('takes the whole workspace when nothing has been marked', () => {
+    // An untouched project keeps everything: there is nothing to say until
+    // somebody says it, and an empty list is not an empty result.
+    const project = withRanges([clip({ in: 0, out: 10 })], [])
+    expect(exportWindows(project)).toEqual([{ from: 0, to: 10 }])
+    expect(exportDuration(project)).toBe(10)
+  })
+
+  it('keeps only what the windows cover', () => {
+    const project = withRanges([clip({ in: 0, out: 10 })], [[2, 5]])
+    expect(exportDuration(project)).toBe(3)
+    expect(exportPieces(project)).toEqual([{ clip: project.clips[0], from: 2, to: 5 }])
+  })
+
+  it('joins several windows in the order they lie', () => {
+    // Two stretches of one recording, cut apart and put back together.
+    const project = withRanges([clip({ in: 0, out: 20 })], [[12, 16], [2, 5]])
+    expect(exportWindows(project)).toEqual([
+      { from: 2, to: 5 },
+      { from: 12, to: 16 },
+    ])
+    expect(exportDuration(project)).toBe(7)
+  })
+
+  it('merges windows that touch or overlap', () => {
+    // Two windows over one stretch describe one stretch. Left apart, the
+    // footage between them would be exported twice.
+    const project = withRanges([clip({ in: 0, out: 20 })], [[2, 8], [6, 12]])
+    expect(exportWindows(project)).toEqual([{ from: 2, to: 12 }])
+  })
+
+  it('cuts across the join between two clips as one stretch', () => {
+    // A window that spans a boundary is the tail of one and the head of the
+    // next: one range, two pieces, joined.
+    const project = withRanges([clip({ in: 0, out: 6 }), clip({ in: 0, out: 6 }, 'c2')], [[4, 8]])
+    const pieces = exportPieces(project)
+    expect(pieces).toHaveLength(2)
+    expect(pieces[0]).toMatchObject({ from: 4, to: 6 })
+    expect(pieces[1]).toMatchObject({ from: 0, to: 2 })
+    expect(pieces[0].clip.uid).toBe('c1')
+    expect(pieces[1].clip.uid).toBe('c2')
+  })
+
+  it('reads the source through the speed a clip plays at', () => {
+    // Two seconds of a doubled clip is four seconds of the file.
+    const project = withRanges([clip({ in: 0, out: 20, speed: 2 })], [[0, 2]])
+    expect(exportPieces(project)).toEqual([{ clip: project.clips[0], from: 0, to: 4 }])
+  })
+
+  it('starts from the trim a clip already has', () => {
+    const project = withRanges([clip({ in: 5, out: 15 })], [[1, 3]])
+    expect(exportPieces(project)).toEqual([{ clip: project.clips[0], from: 6, to: 8 }])
+  })
+
+  it('reads a reversed clip from the end of its source', () => {
+    // A reversed clip plays its source backwards, so the first second of its
+    // block is the *last* second of the file. A window over the start of it
+    // has to take the tail, not the head.
+    const project = withRanges([clip({ in: 0, out: 10, reverse: true })], [[0, 2]])
+    expect(exportPieces(project)).toEqual([{ clip: project.clips[0], from: 8, to: 10 }])
+  })
+
+  it('takes a repeated clip whole rather than guessing which showing', () => {
+    // A window over part of a clip that plays three times would have to say
+    // which of the three it meant.
+    const project = withRanges([clip({ in: 0, out: 4, loop: 3 })], [[1, 2]])
+    expect(exportPieces(project)).toEqual([{ clip: project.clips[0], from: 0, to: 4 }])
+  })
+
+  it('ignores a window with nothing in it', () => {
+    const project = withRanges([clip({ in: 0, out: 10 })], [[4, 4], [6, 9]])
+    expect(exportWindows(project)).toEqual([{ from: 6, to: 9 }])
+  })
+
+  it('keeps a window inside the workspace it was drawn on', () => {
+    const project = withRanges([clip({ in: 0, out: 10 })], [[-5, 40]])
+    expect(exportWindows(project)).toEqual([{ from: 0, to: 10 }])
+  })
+
+  it('reads a window written back to front', () => {
+    const project = withRanges([clip({ in: 0, out: 10 })], [[7, 3]])
+    expect(exportWindows(project)).toEqual([{ from: 3, to: 7 }])
+  })
+})
+
+describe('cutting a clip in two', () => {
+  it('splits the source at the moment asked for', () => {
+    const [left, right] = splitAt(clip({ in: 0, out: 10 }), 4, 'c2')!
+    expect([left.in, left.out]).toEqual([0, 4])
+    expect([right.in, right.out]).toEqual([4, 10])
+  })
+
+  it('loses no footage between the halves', () => {
+    const whole = clip({ in: 1.5, out: 9.25 })
+    const [left, right] = splitAt(whole, 5, 'c2')!
+    expect(sourceLength(left) + sourceLength(right)).toBeCloseTo(sourceLength(whole), 6)
+    expect(clipDuration(left) + clipDuration(right)).toBeCloseTo(clipDuration(whole), 6)
+  })
+
+  it('hands a reversed clip its halves the other way round', () => {
+    // The part playing first on the timeline is the part nearest the end of
+    // the source. Cutting at source second 4 of a reversed 0..10 clip puts
+    // 4..10 first — the half that was already playing — and 0..4 second.
+    const [left, right] = splitAt(clip({ in: 0, out: 10, reverse: true }), 4, 'c2')!
+    expect([left.in, left.out]).toEqual([4, 10])
+    expect([right.in, right.out]).toEqual([0, 4])
+    expect(left.reverse && right.reverse).toBe(true)
+  })
+
+  it('gives the new half a new identity and leaves the old one alone', () => {
+    // The left keeps the original uid so the inspector does not jump to a
+    // different clip the moment you cut the one you were looking at.
+    const [left, right] = splitAt(clip({ in: 0, out: 10 }), 4, 'c2')!
+    expect(left.uid).toBe('c1')
+    expect(right.uid).toBe('c2')
+  })
+
+  it('carries speed to both halves', () => {
+    const [left, right] = splitAt(clip({ in: 0, out: 10, speed: 2 }), 4, 'c2')!
+    expect(left.speed).toBe(2)
+    expect(right.speed).toBe(2)
+  })
+
+  it('refuses a cut that would leave a sliver', () => {
+    const whole = clip({ in: 0, out: 10 })
+    expect(splitAt(whole, 0.01, 'c2')).toBeNull()
+    expect(splitAt(whole, 9.99, 'c2')).toBeNull()
+    expect(splitAt(whole, 0, 'c2')).toBeNull()
+    expect(splitAt(whole, 10, 'c2')).toBeNull()
+  })
+
+  it('refuses a repeated clip, rather than guessing what half of it means', () => {
+    expect(canSplit(clip({ loop: 3 }))).toBe(false)
+    expect(splitAt(clip({ in: 0, out: 10, loop: 3 }), 4, 'c2')).toBeNull()
+  })
+
+  it('refuses a there-and-back clip for the same reason', () => {
+    expect(canSplit(clip({ boomerang: true }))).toBe(false)
+    expect(splitAt(clip({ in: 0, out: 10, boomerang: true }), 4, 'c2')).toBeNull()
+  })
+
+  it('allows a plain clip, a sped-up one and a reversed one', () => {
+    expect(canSplit(clip())).toBe(true)
+    expect(canSplit(clip({ speed: 3 }))).toBe(true)
+    expect(canSplit(clip({ reverse: true }))).toBe(true)
+  })
 })
 
 describe('how long a clip runs', () => {

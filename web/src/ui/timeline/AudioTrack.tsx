@@ -17,16 +17,29 @@ import { useState } from 'react'
 import clsx from 'clsx'
 
 import { formatDuration } from '../../core/format'
-import { clamp } from '../../core/geometry'
-import { contentEnd, fileOf, soundLength, timelineDuration } from '../../core/project'
-import { blockPlacement } from '../../core/timeline'
+import { clamp, type View } from '../../core/geometry'
+import {
+  contentEnd,
+  fileOf,
+  soundLength,
+  timelineDuration,
+  type Sound,
+} from '../../core/project'
+import { blockPlacement, layout, visibleSource } from '../../core/timeline'
 import { useT } from '../../i18n'
 import { useStore } from '../../store'
 import { Icon } from '../controls'
 import { useDrag, type TimelineView } from './useTimelineView'
+import { Waveform } from './Waveform'
 
-/** Height of one row on this track, in pixels. */
-export const ROW = 26
+/**
+ * Height of one row on this track, in pixels.
+ *
+ * Read by the timeline's own label column, so a taller row is this constant
+ * and nothing else. It grew to make room for a waveform: at twenty-six there
+ * was no shape to see between the border and the text.
+ */
+export const ROW = 34
 
 /** The footage's own sound takes a row, and so does each one laid on top. */
 export function audioRows(sounds: number): number {
@@ -55,7 +68,10 @@ export function AudioTrack({ axis }: { axis: TimelineView }) {
           patchSound(dragging, { at })
         }
       : null,
-    () => setDragging(null),
+    () => {
+      setDragging(null)
+      axis.release()
+    },
   )
 
   const own = project.audio
@@ -71,7 +87,14 @@ export function AudioTrack({ axis }: { axis: TimelineView }) {
           label={t('audio.fromClips')}
           detail={level}
           onGrab={() => setFocus({ kind: 'audio' })}
-        />
+        >
+          {/*
+            One canvas per clip rather than one across the row: on a joined
+            timeline each block is a different file, and stretching one file's
+            waveform over the whole track would be a picture of the wrong sound.
+          */}
+          <ClipWaves axis={axis} />
+        </Row>
       ) : (
         <button
           type="button"
@@ -101,12 +124,81 @@ export function AudioTrack({ axis }: { axis: TimelineView }) {
             draggable
             onGrab={() => {
               setFocus({ kind: 'sound', uid: sound.uid })
+              // A sound can outlast the picture, so moving it changes how far
+              // the axis reaches — hold it still for the gesture.
+              axis.hold()
               setDragging(sound.uid)
             }}
-          />
+          >
+            {file && <Waveform file={file} {...soundShowing(sound, axis.view)} />}
+          </Row>
         )
       })}
     </div>
+  )
+}
+
+/**
+ * The part of a laid sound that is on screen, in seconds of its own file.
+ *
+ * A sound sits at a moment on the timeline rather than in the run of clips, so
+ * it does not go through `layout` — but it is drawn clipped to the window in
+ * exactly the same way, and needs clipping to match.
+ */
+function soundShowing(sound: Sound, view: View): { from: number; to: number } {
+  const start = Math.max(sound.at, view.start)
+  const end = Math.min(sound.at + soundLength(sound), view.end)
+  if (end <= start) return { from: sound.in, to: sound.in }
+  return { from: sound.in + (start - sound.at), to: sound.in + (end - sound.at) }
+}
+
+/**
+ * The footage's own sound, one waveform per clip on the video track.
+ *
+ * Placed inside the single row rather than as rows of its own, so the track
+ * still draws one block per line and the timeline's measurements are unchanged.
+ */
+function ClipWaves({ axis }: { axis: TimelineView }) {
+  const project = useStore((state) => state.project)
+  const files = useStore((state) => state.files)
+
+  return (
+    <>
+      {layout(project.clips).map((block) => {
+        const file = fileOf(files, block.clip.fileId)
+        if (!file) return null
+        const place = blockPlacement(block.start, block.end, axis.view)
+        if (!place) return null
+        // The part of the clip on screen, for the same reason the frame strip
+        // needs it: the block is drawn clipped to the window, so drawing the
+        // whole clip inside it makes zooming change nothing. No debounce here
+        // — this reads an array already in hand rather than asking for one.
+        const showing = visibleSource(block, axis.view)
+        if (!showing) return null
+
+        // Positioned against the row, which spans the whole timeline, so each
+        // clip's sound sits under the picture it belongs to.
+        const whole = blockPlacement(0, timelineDuration(project), axis.view)
+        if (!whole || whole.width <= 0) return null
+        const left = ((place.left - whole.left) / whole.width) * 100
+        const width = (place.width / whole.width) * 100
+
+        return (
+          <div
+            key={block.uid}
+            className="pointer-events-none absolute inset-y-0"
+            style={{ left: `${left}%`, width: `${width}%` }}
+          >
+            <Waveform
+              file={file}
+              from={showing.start}
+              to={showing.end}
+              reversed={block.clip.reverse}
+            />
+          </div>
+        )
+      })}
+    </>
   )
 }
 
@@ -118,6 +210,7 @@ function Row({
   detail,
   draggable,
   onGrab,
+  children,
 }: {
   top: number
   place: { left: number; width: number } | null
@@ -126,6 +219,7 @@ function Row({
   detail: string
   draggable?: boolean
   onGrab: () => void
+  children?: React.ReactNode
 }) {
   if (!place) return null
   return (
@@ -141,9 +235,10 @@ function Row({
         onGrab()
       }}
     >
-      <Icon name="Music" size={11} className="shrink-0 text-faint" />
-      <span className="truncate text-[10px]">{label}</span>
-      <span className="ml-auto shrink-0 font-mono text-[9px] text-faint">{detail}</span>
+      {children}
+      <Icon name="Music" size={11} className="relative shrink-0 text-faint" />
+      <span className="relative truncate text-[10px]">{label}</span>
+      <span className="relative ml-auto shrink-0 font-mono text-[9px] text-faint">{detail}</span>
     </div>
   )
 }

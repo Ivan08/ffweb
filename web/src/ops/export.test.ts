@@ -33,6 +33,22 @@ const SHAPES: Array<[string, Project]> = [
   ['joined', project({ clips: [clip(PRIMARY), clip(SECOND)] })],
   ['joined with a silent clip', project({ clips: [clip(PRIMARY), clip(SILENT)] })],
   ['side by side', project({ clips: [clip(PRIMARY), clip(SECOND)], layout: 'side-by-side' })],
+  [
+    'dissolved',
+    project({
+      clips: [clip(PRIMARY), clip(SECOND, { transition: { duration: 1, kind: 'fade' } })],
+    }),
+  ],
+  [
+    'dissolved three ways',
+    project({
+      clips: [
+        clip(PRIMARY),
+        clip(SECOND, { transition: { duration: 1, kind: 'wipeleft' } }),
+        clip(SILENT, { transition: { duration: 0.5, kind: 'circleopen' } }),
+      ],
+    }),
+  ],
   ['sped up', project({ clips: [clip(PRIMARY, { speed: 2 })] })],
   ['reversed', project({ clips: [clip(PRIMARY, { reverse: true })] })],
   ['repeated', project({ clips: [clip(PRIMARY, { loop: 3 })] })],
@@ -66,6 +82,7 @@ const SHAPES: Array<[string, Project]> = [
   ],
   ['faded', project({ fadeIn: 1, fadeOut: 2 })],
   ['burnt-in subtitles', project({ subtitles: { fileId: SUBS.id, mode: 'burn', fontSize: 28 } })],
+  ['soft subtitles', project({ subtitles: { fileId: SUBS.id, mode: 'soft', fontSize: 28 } })],
   ['stripped of metadata', project({ stripMeta: true })],
   [
     'effects',

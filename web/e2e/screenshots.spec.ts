@@ -60,7 +60,10 @@ async function scene(browser: Browser, name: string, seconds: number, tone: numb
   await drawFrames(browser, name, frames)
   await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y',
     '-stream_loop', '-1', '-framerate', String(FPS), '-i', join(frames, '%03d.png'),
-    '-f', 'lavfi', '-i', `sine=frequency=${tone}`,
+    // A tone that swells and fades rather than a flat one: the waveform on the
+    // audio track is drawn from what is actually there, and a constant sine
+    // draws a straight line — accurate, and a picture of nothing.
+    '-f', 'lavfi', '-i', `sine=frequency=${tone},tremolo=f=1.1:d=0.8`,
     '-t', String(seconds),
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', to])
@@ -81,7 +84,7 @@ test.beforeAll(async ({ browser }) => {
   await paw.close()
 
   await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y',
-    '-f', 'lavfi', '-t', '30', '-i', 'sine=frequency=440', '-c:a', 'libmp3lame',
+    '-f', 'lavfi', '-t', '30', '-i', 'sine=frequency=440,tremolo=f=0.6:d=0.9', '-c:a', 'libmp3lame',
     join(media, 'музыка.mp3')])
 
   server = spawn(join(repo, 'target', 'release', 'ffweb'),

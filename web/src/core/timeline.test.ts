@@ -7,12 +7,21 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { clipOf, type Clip } from './project'
+import {
+  clipOf,
+  clipStart,
+  emptyProject,
+  overlaps,
+  timelineDuration,
+  type Clip,
+  type Project,
+} from './project'
 import {
   blockPlacement,
   clipAt,
   timelineAt,
   landmarks,
+  visibleSource,
   layout,
   MIN_SPAN,
   moveSpan,
@@ -92,6 +101,163 @@ describe('what is playing at a moment', () => {
   })
 })
 
+describe('agreeing with the project about where things are', () => {
+  const asProject = (clips: Clip[]): Project => ({ ...emptyProject(), clips })
+
+  it('lays the track out to exactly the length the project claims', () => {
+    // Two walks of the same sum lived apart for a while, and adding overlaps
+    // to one and not the other would put every block on screen somewhere the
+    // command was not built for. This is what stops them drifting again.
+    const shapes: Clip[][] = [
+      [clip('a', { in: 0, out: 6 })],
+      [clip('a', { in: 0, out: 6 }), clip('b', { in: 0, out: 4 })],
+      [
+        clip('a', { in: 0, out: 6 }),
+        clip('b', { in: 0, out: 4, transition: { duration: 1.5, kind: 'fade' } }),
+      ],
+      [
+        clip('a', { in: 0, out: 6, speed: 2 }),
+        clip('b', { in: 0, out: 4, loop: 2, transition: { duration: 1, kind: 'wipeleft' } }),
+        clip('c', { in: 0, out: 3, transition: { duration: 0.5, kind: 'fade' } }),
+      ],
+    ]
+
+    for (const clips of shapes) {
+      const placed = layout(clips)
+      expect(placed[placed.length - 1].end).toBeCloseTo(timelineDuration(asProject(clips)), 6)
+    }
+  })
+
+  it('starts each clip where the project says it starts', () => {
+    const clips = [
+      clip('a', { in: 0, out: 6 }),
+      clip('b', { in: 0, out: 4, transition: { duration: 1.5, kind: 'fade' } }),
+      clip('c', { in: 0, out: 4, transition: { duration: 1, kind: 'fade' } }),
+    ]
+    for (const block of layout(clips)) {
+      expect(clipStart(asProject(clips), block.uid)).toBeCloseTo(block.start, 6)
+    }
+  })
+})
+
+describe('clips that dissolve into one another', () => {
+  const asProject = (clips: Clip[]): Project => ({ ...emptyProject(), clips })
+
+  it('shortens the result by the overlap', () => {
+    const clips = [
+      clip('a', { in: 0, out: 6 }),
+      clip('b', { in: 0, out: 4, transition: { duration: 1.5, kind: 'fade' } }),
+    ]
+    expect(timelineDuration(asProject(clips))).toBeCloseTo(8.5, 6)
+  })
+
+  it('starts the arriving clip while the one before is still playing', () => {
+    const clips = [
+      clip('a', { in: 0, out: 6 }),
+      clip('b', { in: 0, out: 4, transition: { duration: 1.5, kind: 'fade' } }),
+    ]
+    const [first, second] = layout(clips)
+    expect(first.end).toBeCloseTo(6, 6)
+    expect(second.start).toBeCloseTo(4.5, 6)
+  })
+
+  it('ignores a transition on the first clip, which follows nothing', () => {
+    const clips = [clip('a', { in: 0, out: 6, transition: { duration: 2, kind: 'fade' } })]
+    expect(timelineDuration(asProject(clips))).toBeCloseTo(6, 6)
+    expect(layout(clips)[0].start).toBe(0)
+  })
+
+  it('never lets a transition eat more than either side has', () => {
+    // Two seconds of clip cannot give three seconds of dissolve, and asking
+    // would put the transition before the clip it comes out of.
+    const clips = [
+      clip('a', { in: 0, out: 2 }),
+      clip('b', { in: 0, out: 2, transition: { duration: 3, kind: 'fade' } }),
+    ]
+    const placed = layout(clips)
+    expect(placed[1].start).toBeGreaterThanOrEqual(0)
+    expect(timelineDuration(asProject(clips))).toBeGreaterThan(0)
+  })
+
+  it('leaves nothing for the third clip when the second is used up', () => {
+    // A run of dissolves cannot borrow the same seconds twice.
+    const clips = [
+      clip('a', { in: 0, out: 4 }),
+      clip('b', { in: 0, out: 2, transition: { duration: 2, kind: 'fade' } }),
+      clip('c', { in: 0, out: 4, transition: { duration: 2, kind: 'fade' } }),
+    ]
+    const gaps = overlaps(clips)
+    expect(gaps[1]).toBeCloseTo(2, 6)
+    expect(gaps[2]).toBe(0)
+  })
+
+  it('still knows which clip is playing at a moment inside an overlap', () => {
+    // Both are on screen; the one leaving is the one the preview shows, so the
+    // picture does not jump forward before the dissolve has begun.
+    const clips = [
+      clip('a', { in: 0, out: 6 }),
+      clip('b', { in: 0, out: 4, transition: { duration: 1.5, kind: 'fade' } }),
+    ]
+    expect(clipAt(clips, 5)?.uid).toBe('a')
+    expect(clipAt(clips, 7)?.uid).toBe('b')
+  })
+})
+
+describe('which part of a clip is on screen', () => {
+  const block = (clips: Clip[], uid: string) => layout(clips).find((b) => b.uid === uid)!
+
+  it('is the whole clip when the whole clip is showing', () => {
+    const clips = [clip('a', { in: 0, out: 10 })]
+    expect(visibleSource(block(clips, 'a'), { start: 0, end: 10 })).toEqual({ start: 0, end: 10 })
+  })
+
+  it('narrows to the window when zoomed in', () => {
+    // The bug this exists for: the strip of frames and the waveform were both
+    // drawn from the whole clip while the block was clipped to the window, so
+    // zooming in magnified the block and changed nothing inside it.
+    const clips = [clip('a', { in: 0, out: 10 })]
+    expect(visibleSource(block(clips, 'a'), { start: 2, end: 4 })).toEqual({ start: 2, end: 4 })
+  })
+
+  it('counts from the trim the clip already has, not from zero', () => {
+    // A clip trimmed to start at second 5 shows second 6 of the file one
+    // second in, not second 1.
+    const clips = [clip('a', { in: 5, out: 15 })]
+    expect(visibleSource(block(clips, 'a'), { start: 1, end: 3 })).toEqual({ start: 6, end: 8 })
+  })
+
+  it('accounts for speed', () => {
+    // Two seconds of a doubled clip is four seconds of the file.
+    const clips = [clip('a', { in: 0, out: 10, speed: 2 })]
+    expect(visibleSource(block(clips, 'a'), { start: 0, end: 2 })).toEqual({ start: 0, end: 4 })
+  })
+
+  it('reads a reversed clip from the end, and still returns a range', () => {
+    // The source runs backwards, so the window maps to a range that starts
+    // later in the file than it ends — handed back the right way round,
+    // because a caller wants something to read.
+    const clips = [clip('a', { in: 0, out: 10, reverse: true })]
+    expect(visibleSource(block(clips, 'a'), { start: 0, end: 2 })).toEqual({ start: 8, end: 10 })
+  })
+
+  it('follows a clip that starts partway along the timeline', () => {
+    const clips = [clip('a', { in: 0, out: 6 }), clip('b', { in: 0, out: 6 })]
+    expect(visibleSource(block(clips, 'b'), { start: 7, end: 9 })).toEqual({ start: 1, end: 3 })
+  })
+
+  it('is nothing when the block is off screen', () => {
+    const clips = [clip('a', { in: 0, out: 4 })]
+    expect(visibleSource(block(clips, 'a'), { start: 6, end: 8 })).toBeNull()
+    expect(visibleSource(block(clips, 'a'), { start: 4, end: 8 })).toBeNull()
+  })
+
+  it('clips to the block, not just to the window', () => {
+    // Zoomed out past the end of everything, a clip still only offers itself.
+    const clips = [clip('a', { in: 0, out: 4 })]
+    expect(visibleSource(block(clips, 'a'), { start: -5, end: 20 })).toEqual({ start: 0, end: 4 })
+  })
+})
+
 describe('going back from a clip to the timeline', () => {
   const clips = [clip('a', { in: 2, out: 8 }), clip('b', { in: 0, out: 4 })]
 
@@ -100,6 +266,25 @@ describe('going back from a clip to the timeline', () => {
       const found = clipAt(clips, at)!
       expect(timelineAt(clips, found.uid, found.sourceSeconds)).toBeCloseTo(at, 6)
     }
+  })
+
+  it('is the exact inverse for a reversed clip too', () => {
+    // The case that was wrong: a reversed clip was mapped as though it played
+    // forwards, so the preview showed a frame from the far end of the source.
+    const reversed = [clip('a', { in: 0, out: 10, reverse: true })]
+    for (const at of [0, 2.5, 5, 9.5]) {
+      const found = clipAt(reversed, at)!
+      expect(timelineAt(reversed, 'a', found.sourceSeconds)).toBeCloseTo(at, 6)
+    }
+  })
+
+  it('starts a reversed clip at the end of its source', () => {
+    const reversed = [clip('a', { in: 2, out: 8, reverse: true })]
+    // The first frame shown is the last one of the trimmed part, and the last
+    // frame shown is the first.
+    expect(clipAt(reversed, 0)!.sourceSeconds).toBeCloseTo(8, 6)
+    expect(clipAt(reversed, 6)!.sourceSeconds).toBeCloseTo(2, 6)
+    expect(clipAt(reversed, 3)!.sourceSeconds).toBeCloseTo(5, 6)
   })
 
   it('accounts for speed', () => {

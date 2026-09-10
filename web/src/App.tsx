@@ -1,6 +1,6 @@
 /** The workspace: the file being worked on, and what to do with it. */
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { useT } from './i18n'
 import { useStore } from './store'
@@ -16,6 +16,7 @@ import { PreviewPanel } from './ui/PreviewPanel'
 import { Splitter } from './ui/Splitter'
 import { Icon } from './ui/controls'
 import { useResizable } from './ui/useResizable'
+import { useShortcuts } from './ui/useShortcuts'
 
 export function App() {
   const { t, language } = useT()
@@ -28,7 +29,9 @@ export function App() {
   const files = useStore((state) => state.files)
 
   const right = useResizable('right', 400, 300, 640, 'end')
-  const [picking, setPicking] = useState(false)
+  const dialog = useStore((state) => state.dialog)
+  const openDialog = useStore((state) => state.openDialog)
+  const closeDialog = useStore((state) => state.closeDialog)
 
   useEffect(() => {
     void init()
@@ -38,16 +41,7 @@ export function App() {
     document.documentElement.lang = language
   }, [language])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'o' && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault()
-        setPicking(true)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  useShortcuts()
 
   if (capabilitiesError) {
     return (
@@ -66,16 +60,16 @@ export function App() {
   return (
     <DropTarget>
       <div className="flex h-full flex-col overflow-hidden">
-        <Header onOpenFiles={() => setPicking(true)} />
+        <Header onOpenFiles={() => openDialog('files')} />
 
         <div className="border-b border-line bg-panel">
-          <FileBar onOpen={() => setPicking(true)} />
+          <FileBar onOpen={() => openDialog('files')} />
         </div>
 
         <main className="flex min-h-0 flex-1">
           <div className="min-h-0 min-w-0 flex-1">
             {files.length === 0 ? (
-              <EmptyState onOpen={() => setPicking(true)} />
+              <EmptyState onOpen={() => openDialog('files')} />
             ) : (
               <PreviewPanel />
             )}
@@ -89,7 +83,7 @@ export function App() {
         <CommandBar />
         <BottomDock />
 
-        <FileDialog open={picking} onClose={() => setPicking(false)} />
+        <FileDialog open={dialog === 'files'} onClose={closeDialog} />
         <BusyOverlay />
 
         {wasmMessage && (

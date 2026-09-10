@@ -247,6 +247,21 @@ describe('what an engine can run', () => {
     expect(projectFilters(burnt, FILES)).toContain('subtitles')
     expect(WASM_FILTERS).not.toContain('subtitles')
   })
+
+  it('names the filters a dissolve needs, whether or not the browser has them', () => {
+    // Nobody here has established that the published browser core ships
+    // `xfade`, and this list is a promise rather than a probe: putting it in
+    // on a hunch would mean accepting a timeline and then dying part way
+    // through the encode. Left out, the engine says so before anything runs,
+    // exactly as it does for burnt-in subtitles.
+    const dissolved = project({
+      clips: [clip(PRIMARY), clip(SECOND, { transition: { duration: 1, kind: 'fade' } })],
+    })
+    const needed = projectFilters(dissolved, FILES)
+    expect(needed).toContain('xfade')
+    expect(needed).toContain('acrossfade')
+    expect(WASM_FILTERS).not.toContain('xfade')
+  })
 })
 
 describe('translations', () => {
@@ -278,6 +293,15 @@ describe('translations', () => {
     for (const key of Object.keys(ru)) {
       expect(en[key as keyof typeof en], `${key} exists only in Russian`).toBeDefined()
     }
+  })
+
+  it('says everything in Russian too, not only what an effect needs', () => {
+    // The checks above cover effect, parameter and target keys. Everything
+    // else — panels, tooltips, warnings — was covered by nothing, and a
+    // forgotten Russian string compiles and falls back to English silently.
+    // The screenshots are taken in Russian, so it would ship in a picture.
+    const missing = Object.keys(en).filter((key) => !(key in ru))
+    expect(missing, `no Russian for: ${missing.join(', ')}`).toEqual([])
   })
 
   it('translates an option label wherever one language bothered to', () => {

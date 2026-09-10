@@ -39,7 +39,35 @@ export interface Clip {
   boomerang: boolean
   /** How many times the clip plays; 1 is once. */
   loop: number
+  /**
+   * How this clip arrives out of the one before it. Absent is a hard cut.
+   *
+   * It lives on the clip that *arrives* rather than in a list of joins,
+   * because a join has no identity of its own: a list running alongside the
+   * clips would have to be spliced in step by every reorder, removal, addition
+   * and split, and the first one to forget would apply a dissolve to the wrong
+   * pair without saying so. Carried here it moves, copies and disappears with
+   * the clip that owns it, and the first clip's is simply ignored.
+   */
+  transition?: Transition | null
 }
+
+/** How one clip gives way to the next. */
+export interface Transition {
+  /** Seconds of overlap with the clip before. */
+  duration: number
+  kind: TransitionKind
+}
+
+/**
+ * The shapes a transition can take.
+ *
+ * A small, deliberate set out of the several dozen `xfade` offers: each one
+ * has to be recognisable at a glance in a list, and a wipe is a wipe whichever
+ * of eight directions it runs in.
+ */
+export const TRANSITIONS = ['fade', 'fadeblack', 'wipeleft', 'slideleft', 'circleopen'] as const
+export type TransitionKind = (typeof TRANSITIONS)[number]
 
 /**
  * The sound that came with the footage, and what is done to the finished mix.
@@ -102,11 +130,58 @@ export interface Overlay {
   to: number
 }
 
+/**
+ * A window of the workspace that reaches the result.
+ *
+ * The timeline is the workspace: every clip is laid out at its full length,
+ * whatever anyone means to keep of it. What is *kept* is these windows, and
+ * they are what the export is made of, joined in the order they are listed.
+ *
+ * Trimming used to be done to the clip itself, which meant the timeline showed
+ * the result and everything cut away vanished from it — leaving the block
+ * filling the axis again with nowhere to drag back to, so a trim could be made
+ * shorter and never longer. A window has room on both sides because the
+ * footage it was cut from is still drawn underneath it.
+ */
+export interface Range {
+  uid: string
+  /** Seconds on the workspace timeline. */
+  from: number
+  to: number
+}
+
 export interface Subtitles {
   fileId: string
   /** `soft` muxes a selectable track; `burn` paints it into the picture. */
   mode: 'soft' | 'burn'
   fontSize: number
+}
+
+/**
+ * Whether a file is subtitles, judged by its name.
+ *
+ * There is nothing to probe: a subtitle file has no streams, so ffprobe
+ * reports neither picture nor sound and it looks exactly like a file that
+ * failed to open. The four extensions are the ones the server already accepts
+ * as media.
+ */
+export function isSubtitleFile(name: string): boolean {
+  return /\.(srt|vtt|ass|ssa)$/i.test(name)
+}
+
+/**
+ * Whether the subtitles on this project reach the result at all.
+ *
+ * They do not when there is no picture to paint them onto, and they do not
+ * when the container carries no subtitle track. Asking here rather than only
+ * where they are emitted is what keeps a useless `-i` off the command: the
+ * input list is built from this, so a subtitle file that cannot be used is
+ * never opened in the first place.
+ */
+export function carriesSubtitles(project: Project, container?: { subtitles?: string }): boolean {
+  if (!project.subtitles) return false
+  if (project.target === 'audio') return false
+  return project.subtitles.mode === 'burn' || container?.subtitles !== undefined
 }
 
 /** One entry in the effect chain. */
@@ -126,6 +201,13 @@ export interface Project {
   /** Sounds laid on top of, or instead of, the footage's own. */
   sounds: Sound[]
   overlays: Overlay[]
+  /**
+   * What of the workspace reaches the result, in the order it is joined.
+   *
+   * Empty means the whole of it, which is what an untouched project is: there
+   * is nothing to say until somebody says it.
+   */
+  ranges: Range[]
   subtitles: Subtitles | null
   effects: EffectItem[]
   /** Seconds of fade at each end of the finished timeline. */
@@ -162,6 +244,7 @@ export function emptyProject(): Project {
     audio: emptyAudioTrack(),
     sounds: [],
     overlays: [],
+    ranges: [],
     subtitles: null,
     effects: [],
     fadeIn: 0,
@@ -205,14 +288,245 @@ export function clipDuration(clip: Clip): number {
   return once * (clip.boomerang ? 2 : 1) * repeats
 }
 
+/**
+ * Seconds each clip overlaps the one before it, in clip order.
+ *
+ * The first never overlaps anything. Beyond that an overlap can be no longer
+ * than either side has left to give: three two-second clips dissolving over
+ * two seconds each would otherwise collapse the timeline to nothing, and hand
+ * ffmpeg a transition starting before the clip it is transitioning from.
+ *
+ * This is the one place the arithmetic lives. Everything that asks where a
+ * clip sits, how long the result runs, or which clip is playing goes through
+ * it, so there is no second answer to keep in step.
+ */
+export function overlaps(clips: Clip[]): number[] {
+  const result: number[] = []
+  // What the clip before still has to spare, after its own overlap.
+  let spare = 0
+  for (const clip of clips) {
+    const length = clipDuration(clip)
+    const wanted = clip.transition?.duration ?? 0
+    // Bounded by what the clip before has left, which for the first clip is
+    // nothing — so a transition set on it is ignored without a special case.
+    const overlap = Math.max(0, Math.min(wanted, spare, length))
+    result.push(overlap)
+    spare = length - overlap
+  }
+  return result
+}
+
 /** How long the finished result runs. */
 export function timelineDuration(project: Project): number {
+  if (project.clips.length === 0) return 0
   const lengths = project.clips.map(clipDuration)
-  if (lengths.length === 0) return 0
-  // Side by side plays the clips together, so the longest one decides.
-  return project.layout === 'sequence'
-    ? lengths.reduce((total, length) => total + length, 0)
-    : Math.max(...lengths)
+  // Side by side plays the clips together, so the longest one decides — and a
+  // transition means nothing when nothing follows anything.
+  if (project.layout !== 'sequence') return Math.max(...lengths)
+
+  const gaps = overlaps(project.clips)
+  return lengths.reduce((total, length, index) => total + length - gaps[index], 0)
+}
+
+/**
+ * Where a moment on a clip's block falls inside the file it came from.
+ *
+ * A reversed clip runs the other way: the first frame on the timeline is the
+ * *last* frame of the part being used, so the walk starts at `out` and counts
+ * down. Getting this backwards reads the wrong end of the file.
+ */
+export function sourceAt(clip: Clip, offsetIntoBlock: number): number {
+  const speed = clip.speed > 0 ? clip.speed : 1
+  const travelled = offsetIntoBlock * speed
+  return clip.reverse ? clip.out - travelled : clip.in + travelled
+}
+
+/**
+ * A piece of one clip that reaches the result.
+ *
+ * Where a window falls across the join between two clips, it yields one piece
+ * of each: that is what "a single range across two files" means, and it is
+ * why the export is built from pieces rather than from clips.
+ */
+export interface Piece {
+  clip: Clip
+  /** Seconds of the clip's own source. Ascending, even when reversed. */
+  from: number
+  to: number
+}
+
+/**
+ * The windows that reach the result, tidied.
+ *
+ * Sorted and merged, because two windows that touch or overlap describe one
+ * stretch of footage and would otherwise export it twice. Nothing is dropped
+ * silently: an empty list means the whole workspace, which is what a project
+ * says before anybody has marked anything.
+ */
+export function exportWindows(project: Project): Array<{ from: number; to: number }> {
+  const whole = timelineDuration(project)
+  if (project.ranges.length === 0) return whole > 0 ? [{ from: 0, to: whole }] : []
+
+  const sorted = project.ranges
+    .map((range) => ({
+      from: clamp(Math.min(range.from, range.to), 0, whole),
+      to: clamp(Math.max(range.from, range.to), 0, whole),
+    }))
+    .filter((range) => range.to - range.from > 0.001)
+    .sort((left, right) => left.from - right.from)
+
+  const merged: Array<{ from: number; to: number }> = []
+  for (const range of sorted) {
+    const last = merged[merged.length - 1]
+    if (last && range.from <= last.to + 0.001) last.to = Math.max(last.to, range.to)
+    else merged.push({ ...range })
+  }
+  return merged
+}
+
+/**
+ * The free stretch of workspace at a moment, or null if it is already kept.
+ *
+ * What "add a window here" means: from where the playhead stands to wherever
+ * the next window begins, or to the end of the workspace. Marking by hand needs
+ * a way in that does not depend on finding bare pixels in a thirty-pixel row.
+ */
+export function freeSpanAt(project: Project, seconds: number): { from: number; to: number } | null {
+  const whole = timelineDuration(project)
+  if (whole <= 0) return null
+  const at = clamp(seconds, 0, whole)
+
+  let to = whole
+  for (const window of exportWindows(project)) {
+    if (project.ranges.length === 0) return null
+    if (at >= window.from - 0.001 && at <= window.to + 0.001) return null
+    if (window.from > at) {
+      to = Math.min(to, window.from)
+      break
+    }
+  }
+  return to - at > 0.05 ? { from: at, to } : null
+}
+
+/** How long the result runs: the windows, not the workspace they sit on. */
+export function exportDuration(project: Project): number {
+  return exportWindows(project).reduce((total, range) => total + (range.to - range.from), 0)
+}
+
+/**
+ * The pieces the export is made of, in the order they are joined.
+ *
+ * A clip that repeats or plays there-and-back is taken whole or not at all: a
+ * window over part of it would have to say which showing it meant, and there
+ * is no honest answer. Everything else is cut where the window falls.
+ */
+export function exportPieces(project: Project): Piece[] {
+  const pieces: Piece[] = []
+  if (project.layout !== 'sequence') {
+    // Side by side plays the clips together; there is no run of time to cut.
+    for (const clip of project.clips) pieces.push({ clip, from: clip.in, to: clip.out })
+    return pieces
+  }
+
+  const blocks = laidOut(project.clips)
+  for (const window of exportWindows(project)) {
+    for (const block of blocks) {
+      const from = Math.max(window.from, block.start)
+      const to = Math.min(window.to, block.end)
+      if (to - from <= 0.001) continue
+
+      const whole = !canSplit(block.clip)
+      if (whole) {
+        pieces.push({ clip: block.clip, from: block.clip.in, to: block.clip.out })
+        continue
+      }
+
+      // Where those moments fall inside the file the clip came from — which
+      // for a reversed clip is the other way round.
+      const head = sourceAt(block.clip, from - block.start)
+      const tail = sourceAt(block.clip, to - block.start)
+      pieces.push({ clip: block.clip, from: Math.min(head, tail), to: Math.max(head, tail) })
+    }
+  }
+  return pieces
+}
+
+/**
+ * Where each clip sits on the workspace.
+ *
+ * The same walk `timeline.ts` draws with, kept here so the model can answer
+ * without reaching into the interface. `layout` there calls this.
+ */
+export function laidOut(clips: Clip[]): Array<{ clip: Clip; start: number; end: number }> {
+  const gaps = overlaps(clips)
+  const placed: Array<{ clip: Clip; start: number; end: number }> = []
+  let offset = 0
+  clips.forEach((clip, index) => {
+    offset -= gaps[index]
+    const length = clipDuration(clip)
+    placed.push({ clip, start: offset, end: offset + length })
+    offset += length
+  })
+  return placed
+}
+
+/**
+ * Where a moment on the workspace lands in the result.
+ *
+ * Everything on the timeline is placed against the workspace, because that is
+ * what is on screen. The result is the windows joined, so anything after a
+ * gap moves earlier by however much the gap took out. A moment inside a gap
+ * lands on the join, which is where it would be seen.
+ */
+export function toResult(project: Project, seconds: number): number {
+  let elapsed = 0
+  for (const window of exportWindows(project)) {
+    if (seconds < window.from) return elapsed
+    if (seconds <= window.to) return elapsed + (seconds - window.from)
+    elapsed += window.to - window.from
+  }
+  return elapsed
+}
+
+/**
+ * The project as the result sees it: the pieces, laid end to end.
+ *
+ * Everything that builds a command works on this rather than on the workspace,
+ * so the windows are accounted for once, here, and the graph goes on seeing a
+ * plain run of clips. When nothing has been marked this is the project itself,
+ * which is what keeps an untouched export exactly the command it always was.
+ */
+export function forExport(project: Project): Project {
+  if (project.ranges.length === 0) return project
+
+  const pieces = exportPieces(project)
+  const seen = new Set<string>()
+  const clips = pieces.map((piece, index) => {
+    // Only the first piece cut from a clip keeps how that clip arrived: the
+    // rest follow their own halves and there is nothing to arrive out of.
+    const first = !seen.has(piece.clip.uid)
+    seen.add(piece.clip.uid)
+    return {
+      ...piece.clip,
+      uid: `${piece.clip.uid}~${index}`,
+      in: piece.from,
+      out: piece.to,
+      transition: first ? piece.clip.transition : null,
+    }
+  })
+
+  return {
+    ...project,
+    clips,
+    ranges: [],
+    still: toResult(project, project.still),
+    overlays: project.overlays.map((overlay) => ({
+      ...overlay,
+      from: toResult(project, overlay.from),
+      to: toResult(project, overlay.to),
+    })),
+    sounds: project.sounds.map((sound) => ({ ...sound, at: toResult(project, sound.at) })),
+  }
 }
 
 /**
@@ -233,13 +547,55 @@ export function contentEnd(project: Project): number {
 /** Where a clip begins on the timeline. */
 export function clipStart(project: Project, uid: string): number {
   if (project.layout !== 'sequence') return 0
+  const gaps = overlaps(project.clips)
   let offset = 0
-  for (const clip of project.clips) {
+  for (const [index, clip] of project.clips.entries()) {
+    offset -= gaps[index]
     if (clip.uid === uid) return offset
     offset += clipDuration(clip)
   }
   return offset
 }
+
+/**
+ * Whether a clip can be cut in two at all.
+ *
+ * Repeats and there-and-back are properties of a whole clip: half of a clip
+ * that plays three times, or half of one that plays forwards then backwards,
+ * would have to show material the other half has already shown. There is no
+ * honest answer, so the answer is no — said plainly, rather than by producing
+ * something plausible.
+ */
+export function canSplit(clip: Clip): boolean {
+  return Math.floor(clip.loop) <= 1 && !clip.boomerang
+}
+
+/**
+ * Cut a clip in two at a moment inside it, measured in seconds of its source.
+ *
+ * Null when the cut would leave either half too short to be a clip, or when the
+ * clip is one that cannot be cut at all.
+ *
+ * A reversed clip hands its halves over the other way round: the part playing
+ * first on the timeline is the part nearest the *end* of the source, so the
+ * left-hand clip is the one that keeps `out` and takes the cut as its `in`.
+ */
+export function splitAt(clip: Clip, sourceSeconds: number, rightUid: string): [Clip, Clip] | null {
+  if (!canSplit(clip)) return null
+
+  // Both halves are measured in source seconds, so the floor is too: a tenth of
+  // a second of footage played at half speed is still a tenth of a second of
+  // footage, and a clip shorter than this cannot be trimmed either.
+  const floor = MIN_SOURCE_SPAN
+  if (sourceSeconds <= clip.in + floor || sourceSeconds >= clip.out - floor) return null
+
+  const left = { ...clip, [clip.reverse ? 'in' : 'out']: sourceSeconds }
+  const right = { ...clip, uid: rightUid, [clip.reverse ? 'out' : 'in']: sourceSeconds }
+  return [left, right]
+}
+
+/** The shortest piece of source worth calling a clip, in seconds. */
+export const MIN_SOURCE_SPAN = 0.05
 
 export function moveClip(clips: Clip[], uid: string, delta: number): Clip[] {
   const index = clips.findIndex((clip) => clip.uid === uid)
@@ -361,7 +717,11 @@ export interface ResolvedInputs {
   missing: string[]
 }
 
-export function resolveInputs(project: Project, files: MediaFile[]): ResolvedInputs {
+export function resolveInputs(
+  project: Project,
+  files: MediaFile[],
+  container?: { subtitles?: string },
+): ResolvedInputs {
   const resolved: ResolvedInputs = {
     files: [],
     clips: new Map(),
@@ -394,7 +754,9 @@ export function resolveInputs(project: Project, files: MediaFile[]): ResolvedInp
     const index = add(overlay.fileId, 'overlay')
     if (index !== undefined) resolved.overlays.set(overlay.uid, index)
   }
-  if (project.subtitles) resolved.subtitles = add(project.subtitles.fileId, 'subtitles')
+  if (project.subtitles && carriesSubtitles(project, container)) {
+    resolved.subtitles = add(project.subtitles.fileId, 'subtitles')
+  }
 
   return resolved
 }

@@ -6,10 +6,22 @@
  * questions, and only one of them is on screen at a time.
  */
 
+import { containerFor } from '../core/build'
+import { findContainer } from '../core/containers'
 import { formatDuration } from '../core/format'
 import { clamp } from '../core/geometry'
-import { clipDuration, contentEnd, fileOf, sourceLength, timelineDuration } from '../core/project'
+import {
+  clipDuration,
+  contentEnd,
+  exportDuration,
+  fileOf,
+  sourceLength,
+  timelineDuration,
+  TRANSITIONS,
+  type TransitionKind,
+} from '../core/project'
 import { useT } from '../i18n'
+import { canBurnSubtitles } from '../ops'
 import { useStore } from '../store'
 import { Field, Icon, Segmented, Slider, Toggle } from './controls'
 import { TimeInput } from './trim/TimeInput'
@@ -22,12 +34,211 @@ export function Inspector() {
   if (focus.kind === 'overlay') return <OverlayInspector uid={focus.uid} />
   if (focus.kind === 'sound') return <SoundInspector uid={focus.uid} />
   if (focus.kind === 'audio') return <AudioInspector />
+  if (focus.kind === 'subtitles') return <SubtitlesInspector />
+  if (focus.kind === 'range') return <RangeInspector uid={focus.uid} />
 
   return (
     <section className="panel mb-3 px-3 py-2.5">
       <h2 className="section-title mb-1">{t('inspector.title')}</h2>
       <p className="text-[12px] text-faint">{t('inspector.empty')}</p>
     </section>
+  )
+}
+
+/**
+ * One window of the workspace that reaches the result.
+ *
+ * The times are read against the workspace, which is what is on screen, so
+ * they mean the same thing as the ruler above them.
+ */
+function RangeInspector({ uid }: { uid: string }) {
+  const { t } = useT()
+  const project = useStore((state) => state.project)
+  const patchRange = useStore((state) => state.patchRange)
+  const removeRange = useStore((state) => state.removeRange)
+  const setFocus = useStore((state) => state.setFocus)
+
+  const range = project.ranges.find((candidate) => candidate.uid === uid)
+  if (!range) return null
+  const whole = timelineDuration(project)
+
+  return (
+    <Shell title={t('range.title')} icon="Scissors">
+      <div className="grid grid-cols-2 gap-2">
+        <TimeInput
+          label={t('range.from')}
+          value={range.from}
+          max={whole}
+          onCommit={(value) => patchRange(uid, { from: clamp(value, 0, range.to - 0.05) })}
+        />
+        <TimeInput
+          label={t('range.to')}
+          value={range.to}
+          max={whole}
+          onCommit={(value) => patchRange(uid, { to: clamp(value, range.from + 0.05, whole) })}
+        />
+      </div>
+
+      <p className="text-[11px] text-faint">
+        {t('clip.length', {
+          source: formatDuration(range.to - range.from, 1),
+          result: formatDuration(exportDuration(project), 1),
+        })}
+      </p>
+
+      <button
+        type="button"
+        className="btn !py-1.5"
+        onClick={() => {
+          removeRange(uid)
+          setFocus({ kind: 'none' })
+        }}
+      >
+        <Icon name="X" size={12} />
+        {t('range.remove')}
+      </button>
+    </Shell>
+  )
+}
+
+/**
+ * How this clip arrives out of the one before it.
+ *
+ * Only shown when there *is* one before it, and only when the clips play in
+ * sequence: a transition between clips playing at the same time means nothing.
+ *
+ * The length offered is bounded by what either side has to give, so the slider
+ * cannot ask for a dissolve longer than the clips it joins — which the model
+ * would clamp anyway, leaving a control that stopped responding halfway along.
+ */
+function TransitionControls({ uid }: { uid: string }) {
+  const { t, tOr } = useT()
+  const project = useStore((state) => state.project)
+  const setTransition = useStore((state) => state.setTransition)
+
+  const index = project.clips.findIndex((clip) => clip.uid === uid)
+  if (index < 1 || project.layout !== 'sequence') return null
+
+  const clip = project.clips[index]
+  const kind = clip.transition?.kind ?? 'fade'
+  // Half of the shorter side: past that the dissolve is most of a clip, and
+  // what is left of it is not really on screen at all.
+  const longest =
+    Math.min(clipDuration(project.clips[index - 1]), clipDuration(clip)) / 2
+  const seconds = clip.transition?.duration ?? 0
+
+  return (
+    <>
+      <Slider
+        label={t('clip.transition')}
+        value={Math.min(seconds, longest)}
+        min={0}
+        max={Math.max(0.1, Math.round(longest * 10) / 10)}
+        step={0.1}
+        unit={t('unit.seconds')}
+        onChange={(duration) =>
+          setTransition(uid, duration > 0 ? { duration, kind } : null)
+        }
+      />
+      {seconds > 0 && (
+        <Field label={t('clip.transitionKind')}>
+          <select
+            className="field"
+            value={kind}
+            onChange={(event) =>
+              setTransition(uid, {
+                duration: seconds,
+                kind: event.target.value as TransitionKind,
+              })
+            }
+          >
+            {TRANSITIONS.map((option) => (
+              <option key={option} value={option}>
+                {tOr(`o.transition.${option}`, option)}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      <p className="text-[11px] text-faint">
+        {seconds > 0 ? t('clip.transitionHint') : t('clip.transitionNone')}
+      </p>
+    </>
+  )
+}
+
+/**
+ * The subtitle track.
+ *
+ * Two ways to carry the same file, and which are available depends on what is
+ * being written: burning needs libass, which the browser core does not ship,
+ * and a soft track needs a container that has somewhere to put it. Rather than
+ * offering both and dropping one silently — which is what used to happen — the
+ * one that cannot work is disabled and says why.
+ */
+function SubtitlesInspector() {
+  const { t } = useT()
+  const project = useStore((state) => state.project)
+  const files = useStore((state) => state.files)
+  const engine = useStore((state) => state.engine)
+  const capabilities = useStore((state) => state.capabilities)
+  const setSubtitles = useStore((state) => state.setSubtitles)
+  const setFocus = useStore((state) => state.setFocus)
+
+  const subtitles = project.subtitles
+  if (!subtitles) return null
+
+  const file = fileOf(files, subtitles.fileId)
+  const container = findContainer(containerFor(project.target, project.container))
+  const native = capabilities?.native
+  const canBurn = native ? canBurnSubtitles(engine, native) : true
+  const canMux = container?.subtitles !== undefined
+
+  const reason =
+    subtitles.mode === 'burn' && !canBurn
+      ? t('subtitles.needsLibass')
+      : subtitles.mode === 'soft' && !canMux
+        ? t('subtitles.needsContainer', { container: (container?.ext ?? '').toUpperCase() })
+        : null
+
+  return (
+    <Shell title={file?.name ?? t('timeline.missing')} icon="Captions">
+      <Field label={t('subtitles.mode')}>
+        <Segmented
+          value={subtitles.mode}
+          onChange={(mode) => setSubtitles({ ...subtitles, mode })}
+          options={[
+            { value: 'soft' as const, label: t('o.subtitles.mode.soft'), title: t('subtitles.softHint') },
+            { value: 'burn' as const, label: t('o.subtitles.mode.burn'), title: t('subtitles.burnHint') },
+          ]}
+        />
+      </Field>
+
+      {subtitles.mode === 'burn' && (
+        <Slider
+          label={t('p.subtitles.fontSize')}
+          value={subtitles.fontSize}
+          min={8}
+          max={72}
+          step={1}
+          onChange={(fontSize) => setSubtitles({ ...subtitles, fontSize })}
+        />
+      )}
+
+      {reason && <p className="text-[11px] text-warn">{reason}</p>}
+
+      <button
+        type="button"
+        className="btn !py-1.5"
+        onClick={() => {
+          setSubtitles(null)
+          setFocus({ kind: 'none' })
+        }}
+      >
+        <Icon name="X" size={12} />
+        {t('subtitles.remove')}
+      </button>
+    </Shell>
   )
 }
 
@@ -99,6 +310,8 @@ function ClipInspector({ uid }: { uid: string }) {
         checked={clip.boomerang}
         onChange={(boomerang) => patchClip(uid, { boomerang })}
       />
+
+      <TransitionControls uid={uid} />
 
       <p className="text-[11px] text-faint">
         {t('clip.length', {

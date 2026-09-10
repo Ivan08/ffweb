@@ -49,7 +49,7 @@ export function CropEditor({
 }) {
   const { t } = useT()
   const effects = useStore((state) => state.project.effects)
-  const setEffectParam = useStore((state) => state.setEffectParam)
+  const patchEffect = useStore((state) => state.patchEffect)
   const removeEffect = useStore((state) => state.removeEffect)
 
   // There is exactly one place a crop can live now. It used to be able to be
@@ -57,11 +57,22 @@ export function CropEditor({
   // rule that decided which rectangle the command actually used.
   const item = effects.find((candidate) => candidate.op === 'crop' && candidate.enabled)
   const source = item?.params ?? {}
+  // The four numbers go in together. They only mean anything together — half
+  // of one rectangle and half of another is not a rectangle — and writing them
+  // one at a time cost four store updates and four steps of history for every
+  // pointer move of a drag.
+  const uid = item?.uid
   const write = useCallback(
-    (key: string, value: number) => {
-      if (item) setEffectParam(item.uid, key, value)
+    (rect: Rect) => {
+      if (!uid) return
+      patchEffect(uid, {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        w: Math.round(rect.w),
+        h: Math.round(rect.h),
+      })
     },
-    [item, setEffectParam],
+    [uid, patchEffect],
   )
 
   const sourceWidth = file.info?.width ?? 1920
@@ -152,11 +163,7 @@ export function CropEditor({
       const scale = sourceWidth / drag.stageWidth
       const dx = (event.clientX - drag.startX) * scale
       const dy = (event.clientY - drag.startY) * scale
-      const next = resizeRect(drag.rect, drag.handle, dx, dy, sourceWidth, sourceHeight)
-      write('x', Math.round(next.x))
-      write('y', Math.round(next.y))
-      write('w', Math.round(next.w))
-      write('h', Math.round(next.h))
+      write(resizeRect(drag.rect, drag.handle, dx, dy, sourceWidth, sourceHeight))
     }
     const onUp = () => setDrag(null)
 
@@ -181,12 +188,7 @@ export function CropEditor({
     else video.pause()
   }
 
-  const reset = () => {
-    write('x', 0)
-    write('y', 0)
-    write('w', sourceWidth)
-    write('h', sourceHeight)
-  }
+  const reset = () => write({ x: 0, y: 0, w: sourceWidth, h: sourceHeight })
 
   const percent = (value: number, total: number) => `${(value / total) * 100}%`
   const left = percent(rect.x, sourceWidth)

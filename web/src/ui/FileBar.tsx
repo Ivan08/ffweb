@@ -13,6 +13,7 @@ import clsx from 'clsx'
 import { formatBytes, formatDuration } from '../core/format'
 import { useT } from '../i18n'
 import { useStore } from '../store'
+import { labelFor, onApple } from '../core/shortcuts'
 import { Icon } from './controls'
 
 export function FileBar({ onOpen }: { onOpen: () => void }) {
@@ -29,7 +30,7 @@ export function FileBar({ onOpen }: { onOpen: () => void }) {
 
   return (
     <div className="flex items-center gap-1.5 overflow-x-auto px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <button type="button" className="btn shrink-0 !py-1" onClick={onOpen} title="Ctrl+O">
+      <button type="button" className="btn shrink-0 !py-1" onClick={onOpen} title={labelFor('open', onApple())}>
         <Icon name="FolderOpen" size={14} />
         {t('files.open')}
       </button>

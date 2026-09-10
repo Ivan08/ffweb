@@ -1,9 +1,15 @@
-//! A disk cache for preview frames.
+//! A disk cache for things derived from a media file.
 //!
 //! Zooming the timeline asks for a fresh row of frames, and every one of those
 //! is an ffmpeg process. Without a cache, zooming in and back out re-extracts
 //! frames that were on screen a second ago; with one, revisiting a range is
-//! instant and only genuinely new positions cost anything.
+//! instant and only genuinely new positions cost anything. The same is true of
+//! an audio waveform, which costs a whole decode of the soundtrack.
+//!
+//! Each kind of derived thing gets its own instance, and so its own directory
+//! and file extension. That separation is what keeps the keys apart: the hash
+//! carries no note of what it is a hash *of*, so a 640-wide waveform and a
+//! 640-wide frame at the same moment would otherwise be the same entry.
 
 use std::path::{Path, PathBuf};
 
@@ -14,20 +20,26 @@ use sha2::{Digest, Sha256};
 const MAX_ENTRIES: usize = 4000;
 
 #[derive(Debug, Clone)]
-pub struct ThumbCache {
+pub struct BlobCache {
     dir: PathBuf,
+    extension: &'static str,
 }
 
-impl ThumbCache {
-    pub fn new(base: &Path) -> Result<Self> {
-        let dir = base.join("thumbs");
+impl BlobCache {
+    /// `name` is the subdirectory, which is also what separates one kind of
+    /// entry from another.
+    pub fn new(base: &Path, name: &str, extension: &'static str) -> Result<Self> {
+        let dir = base.join(name);
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-        Ok(Self { dir })
+        Ok(Self { dir, extension })
     }
 
     /// Key on the file's identity *and* its modification time, so editing a
-    /// file in place does not keep serving frames from the old one.
-    fn key(&self, source: &Path, at: f64, width: u32) -> Option<PathBuf> {
+    /// file in place does not keep serving what was derived from the old one.
+    ///
+    /// `discriminator` is whatever else the caller varies — a position and a
+    /// width for a frame, a bucket count and a range for a waveform.
+    fn key(&self, source: &Path, discriminator: &[u8]) -> Option<PathBuf> {
         let meta = std::fs::metadata(source).ok()?;
         let modified = meta
             .modified()
@@ -39,17 +51,14 @@ impl ThumbCache {
         hasher.update(source.to_string_lossy().as_bytes());
         hasher.update(modified.to_le_bytes());
         hasher.update(meta.len().to_le_bytes());
-        // Milliseconds are finer than anything the UI asks for and keep the key
-        // free of float formatting quirks.
-        hasher.update(((at * 1000.0).round() as i64).to_le_bytes());
-        hasher.update(width.to_le_bytes());
+        hasher.update(discriminator);
         let digest = hasher.finalize();
         let name: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
-        Some(self.dir.join(format!("{name}.jpg")))
+        Some(self.dir.join(format!("{name}.{}", self.extension)))
     }
 
-    pub fn get(&self, source: &Path, at: f64, width: u32) -> Option<Vec<u8>> {
-        let path = self.key(source, at, width)?;
+    pub fn get(&self, source: &Path, discriminator: &[u8]) -> Option<Vec<u8>> {
+        let path = self.key(source, discriminator)?;
         let bytes = std::fs::read(&path).ok()?;
         if bytes.is_empty() {
             return None;
@@ -59,12 +68,12 @@ impl ThumbCache {
         Some(bytes)
     }
 
-    pub fn put(&self, source: &Path, at: f64, width: u32, bytes: &[u8]) {
-        let Some(path) = self.key(source, at, width) else {
+    pub fn put(&self, source: &Path, discriminator: &[u8], bytes: &[u8]) {
+        let Some(path) = self.key(source, discriminator) else {
             return;
         };
         // Written under a unique name and renamed, so a killed process cannot
-        // leave a truncated JPEG that later looks like a cache hit.
+        // leave a truncated file that later looks like a cache hit.
         let tmp = path.with_extension(format!("{}.part", std::process::id()));
         if std::fs::write(&tmp, bytes).is_ok() {
             let _ = std::fs::rename(&tmp, &path);
@@ -93,6 +102,30 @@ impl ThumbCache {
     }
 }
 
+/// The discriminator for one extracted frame: where it is, and how wide.
+///
+/// Milliseconds are finer than anything the interface asks for and keep the
+/// key free of float formatting quirks.
+pub fn frame_key(at: f64, width: u32) -> Vec<u8> {
+    let mut key = Vec::with_capacity(12);
+    key.extend_from_slice(&((at * 1000.0).round() as i64).to_le_bytes());
+    key.extend_from_slice(&width.to_le_bytes());
+    key
+}
+
+/// The discriminator for one set of audio peaks: how many, and over what.
+pub fn peaks_key(buckets: u32, from: f64, to: Option<f64>) -> Vec<u8> {
+    let mut key = Vec::with_capacity(20);
+    key.extend_from_slice(&buckets.to_le_bytes());
+    key.extend_from_slice(&((from * 1000.0).round() as i64).to_le_bytes());
+    // A missing end is its own value, distinct from any real one.
+    key.extend_from_slice(
+        &to.map_or(i64::MIN, |end| (end * 1000.0).round() as i64)
+            .to_le_bytes(),
+    );
+    key
+}
+
 /// Bump a file's modification time to now, as a crude access record.
 fn filetime_now(path: &Path) -> std::io::Result<()> {
     let file = std::fs::OpenOptions::new().append(true).open(path)?;
@@ -104,6 +137,26 @@ fn filetime_now(path: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The cache as the thumbnail caller uses it, so the tests below read the
+    /// way they did before the store was generalised — which is the point:
+    /// they are what says the generalisation changed no behaviour.
+    struct ThumbCache(BlobCache);
+
+    impl ThumbCache {
+        fn new(base: &Path) -> Result<Self> {
+            Ok(Self(BlobCache::new(base, "thumbs", "jpg")?))
+        }
+        fn get(&self, source: &Path, at: f64, width: u32) -> Option<Vec<u8>> {
+            self.0.get(source, &frame_key(at, width))
+        }
+        fn put(&self, source: &Path, at: f64, width: u32, bytes: &[u8]) {
+            self.0.put(source, &frame_key(at, width), bytes)
+        }
+        fn prune(&self) {
+            self.0.prune()
+        }
+    }
 
     fn source(dir: &Path, bytes: &[u8]) -> PathBuf {
         let path = dir.join("clip.mp4");

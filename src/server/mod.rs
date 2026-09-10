@@ -79,6 +79,7 @@ pub fn router(state: SharedState) -> Router {
         .route("/files", post(files::receive_file))
         .route("/probe", get(files::probe_file))
         .route("/thumb", get(files::thumb))
+        .route("/peaks", get(files::peaks))
         .route("/jobs", get(jobs::list).post(jobs::create))
         .route("/jobs/{id}", get(jobs::view))
         .route("/jobs/{id}/log", get(jobs::log))

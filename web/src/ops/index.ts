@@ -1,7 +1,7 @@
 /** The effect registry, and what a given engine can actually run. */
 
 import { WASM_ENCODERS, WASM_FILTERS } from '../core/containers'
-import { isTrivial, type Project } from '../core/project'
+import { isTrivial, overlaps, type Project } from '../core/project'
 import type { EngineId, MediaFile, NativeCapabilities } from '../core/types'
 import type { OpDef, OpId } from '../core/ops'
 import { EFFECTS } from './effects'
@@ -69,6 +69,17 @@ export function projectFilters(project: Project, files: MediaFile[]): string[] {
   }
   if (project.clips.length > 1) {
     needed.add(project.layout === 'side-by-side' ? (project.stackDirection === 'vertical' ? 'vstack' : 'hstack') : 'concat')
+  }
+  // A dissolve is the one thing here the browser core is not known to carry,
+  // so naming it is what makes the engine say so rather than dying part way
+  // through an encode.
+  if (project.layout === 'sequence' && overlaps(project.clips).some((gap) => gap > 0)) {
+    needed.add('xfade')
+    needed.add('acrossfade')
+    // Both sides of a dissolve have to agree on pixel format and timebase, and
+    // the canvas filters pin neither.
+    needed.add('format')
+    needed.add('settb')
   }
   for (const clip of project.clips) {
     if (clip.reverse) {

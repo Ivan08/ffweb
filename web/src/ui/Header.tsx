@@ -7,11 +7,13 @@ import { formatBytes } from '../core/format'
 import { useT } from '../i18n'
 import { useLanguage } from '../i18n'
 import { useStore } from '../store'
+import { labelFor, onApple } from '../core/shortcuts'
 import { Icon, Segmented } from './controls'
 
 export function Header({ onOpenFiles }: { onOpenFiles: () => void }) {
   const { t } = useT()
   const { language, setLanguage } = useLanguage()
+  const apple = onApple()
   const capabilities = useStore((state) => state.capabilities)
   const engine = useStore((state) => state.engine)
   const setEngine = useStore((state) => state.setEngine)
@@ -20,6 +22,10 @@ export function Header({ onOpenFiles }: { onOpenFiles: () => void }) {
   const clearWorkspace = useStore((state) => state.clearWorkspace)
   const files = useStore((state) => state.files)
   const jobs = useStore((state) => state.jobs)
+  const undo = useStore((state) => state.undo)
+  const redo = useStore((state) => state.redo)
+  const canUndo = useStore((state) => state.history.past.length > 0)
+  const canRedo = useStore((state) => state.history.future.length > 0)
 
   const nativeAvailable = capabilities?.native.available ?? false
   const cache = capabilities?.wasm.cache
@@ -29,7 +35,7 @@ export function Header({ onOpenFiles }: { onOpenFiles: () => void }) {
       <button
         type="button"
         className="btn btn-ghost btn-icon"
-        title={`${t('files.open')} · Ctrl+O`}
+        title={`${t('files.open')} · ${labelFor('open', apple)}`}
         onClick={onOpenFiles}
       >
         <Icon name="FolderOpen" size={16} />
@@ -38,6 +44,29 @@ export function Header({ onOpenFiles }: { onOpenFiles: () => void }) {
       <div className="flex items-baseline gap-2">
         <span className="text-[15px] font-semibold tracking-tight">ffweb</span>
         <span className="hidden text-[12px] text-faint sm:inline">{t('app.tagline')}</span>
+      </div>
+
+      <div className="flex items-center gap-0.5">
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon"
+          title={`${t('history.undo')} · ${labelFor('undo', apple)}`}
+          aria-label={t('history.undo')}
+          disabled={!canUndo}
+          onClick={undo}
+        >
+          <Icon name="Undo2" size={15} />
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon"
+          title={`${t('history.redo')} · ${labelFor('redo', apple)}`}
+          aria-label={t('history.redo')}
+          disabled={!canRedo}
+          onClick={redo}
+        >
+          <Icon name="Redo2" size={15} />
+        </button>
       </div>
 
       <ClearButton

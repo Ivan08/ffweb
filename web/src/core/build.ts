@@ -22,7 +22,9 @@ import type { BuildContext } from './ops'
 import { toNames } from './placeholders'
 import {
   clipDuration,
+  forExport,
   isStill,
+  overlaps,
   isTrivial,
   resolveInputs,
   sourceLength,
@@ -50,6 +52,15 @@ export interface BuiltCommand {
   outputName: string
   /** Duration of the result, used for progress and size estimates. */
   duration?: number
+  /**
+   * The files the placeholders stand for, in `@in` order.
+   *
+   * Handed back rather than worked out again by the caller: whether a file is
+   * opened at all can depend on the container, so a second walk of the project
+   * is a second answer, and the runner would send a list of paths that does not
+   * line up with the command it is sending them for.
+   */
+  inputs: MediaFile[]
   /** Parts of the project whose file is no longer in the list. */
   missing: string[]
 }
@@ -104,18 +115,28 @@ function stillInSource(project: Project): number {
 }
 
 export function buildProject(request: BuildRequest): BuiltCommand {
-  const { project, files, engine } = request
-  const inputs = resolveInputs(project, files)
-  const primary = inputs.files[0]
+  const { files, engine } = request
+  // The workspace is what is on screen; the result is the windows marked on it
+  // joined together. Everything below builds the result, so the windows are
+  // accounted for once, here, and the rest goes on seeing a run of clips.
+  const project = forExport(request.project)
   const duration = timelineDuration(project)
-
-  if (!primary) {
-    return { args: [], display: [], outputName: '', missing: inputs.missing }
-  }
 
   const target = project.target
   const ext = containerFor(target, project.container)
   const container = findContainer(ext)
+
+  // The container has to be settled before the inputs are, because whether a
+  // subtitle file is opened at all depends on whether this container can carry
+  // one — and an input that is opened and never used leaves ffmpeg holding a
+  // stream nothing maps.
+  const inputs = resolveInputs(project, files, container)
+  const primary = inputs.files[0]
+
+  if (!primary) {
+    return { args: [], display: [], outputName: '', inputs: [], missing: inputs.missing }
+  }
+
   const canvas = canvasOf(project, files)
 
   const context: BuildContext = {
@@ -249,6 +270,17 @@ export function buildProject(request: BuildRequest): BuiltCommand {
     if (audio) tail.push('-map', `[${audio}]`)
     else dropsAudio = true
 
+    // A soft track is copied through as a stream of its own rather than being
+    // painted onto the picture, so it is the one thing here mapped straight
+    // from an input instead of from a pad the graph made.
+    if (
+      project.subtitles?.mode === 'soft' &&
+      inputs.subtitles !== undefined &&
+      container?.subtitles
+    ) {
+      tail.push('-map', `${inputs.subtitles}:s`, '-c:s', container.subtitles)
+    }
+
     if (target === 'gif') {
       tail.push('-loop', '0', '-an')
       ownsCodecs = true
@@ -261,10 +293,15 @@ export function buildProject(request: BuildRequest): BuiltCommand {
       tail.push('-vn')
     }
 
-    // A sound the user placed can run past the picture. The project knows how
-    // long it is meant to be, so say so rather than reaching for `-shortest`,
-    // which with a filter graph is where truncations live.
-    if (project.sounds.length > 0 && target !== 'still' && duration > 0) {
+    // A sound the user placed can run past the picture, and a chain of
+    // dissolves leaves the picture and the sound a few milliseconds apart —
+    // the video length comes from the model, the audio from whatever `atempo`
+    // and `acrossfade` actually produced, and a long chain accumulates the
+    // difference. The project knows how long the result is meant to be, so it
+    // says so rather than reaching for `-shortest`, which with a filter graph
+    // is where truncations live.
+    const dissolves = overlaps(project.clips).some((gap) => gap > 0)
+    if ((project.sounds.length > 0 || dissolves) && target !== 'still' && duration > 0) {
       tail.push('-t', duration.toFixed(3))
     }
   }
@@ -299,6 +336,9 @@ export function buildProject(request: BuildRequest): BuiltCommand {
     display: toNames(args, names, outputName),
     outputName,
     duration: target === 'still' ? undefined : duration,
+    // The slots are what produced the `-i` arguments, so they are the honest
+    // answer to what the placeholders stand for.
+    inputs: slots.map((slot) => slot.file),
     missing: inputs.missing,
   }
 }

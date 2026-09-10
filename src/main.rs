@@ -11,7 +11,7 @@ use dropbox::Dropbox;
 use jobs::JobStore;
 use paths::Roots;
 use state::AppState;
-use thumbs::ThumbCache;
+use thumbs::BlobCache;
 use wasmcache::WasmCache;
 
 #[tokio::main]
@@ -67,21 +67,27 @@ async fn serve(args: cli::ServeArgs) -> Result<()> {
     }
 
     let wasm_cache = WasmCache::new(args.offline)?;
-    let thumbs = ThumbCache::new(
-        wasm_cache
-            .dir()
-            .parent()
-            .and_then(|p| p.parent())
-            .unwrap_or_else(|| wasm_cache.dir()),
-    )?;
+    let cache_root = wasm_cache
+        .dir()
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap_or_else(|| wasm_cache.dir())
+        .to_path_buf();
+    let thumbs = BlobCache::new(&cache_root, "thumbs", "jpg")?;
+    let peaks = BlobCache::new(&cache_root, "peaks", "json")?;
     // Trim anything left over from previous sessions before adding to it.
     thumbs.prune();
+    peaks.prune();
 
     let state = Arc::new(AppState {
         jobs: JobStore::new(args.jobs, caps.ffmpeg_path.clone()),
         cache: wasm_cache,
         dropbox,
         thumbs,
+        peaks,
+        // Two at a time: enough that the timeline fills in promptly, few
+        // enough that it cannot crowd out an encode.
+        sidework: Arc::new(tokio::sync::Semaphore::new(2)),
         caps,
         roots,
         backend: args.backend,

@@ -22,12 +22,15 @@
 
 import type { BuildContext, Params } from './ops'
 import {
+  clipDuration,
   fileOf,
   isStill,
+  overlaps,
   sourceLength,
   timelineDuration,
   type Clip,
   type EffectItem,
+  type TransitionKind,
   type Project,
   type ResolvedInputs,
 } from './project'
@@ -106,6 +109,98 @@ function clipHasAudio(clip: Clip, files: MediaFile[]): boolean {
   // An unprobed file is assumed to have sound: asking for a stream that is not
   // there fails loudly, which is better than silently dropping the audio.
   return info ? info.has_audio : true
+}
+
+/**
+ * Join the clips so that each dissolves out of the one before it.
+ *
+ * `xfade` takes two inputs and gives one, so a run of clips is a left fold
+ * rather than the single N-way `concat` a hard cut uses. Its `offset` is
+ * measured on the *first* input's timeline and says where the transition
+ * begins, so the accumulated length has to be carried along: after joining,
+ * the result runs `left + right - overlap`, which is exactly what `overlaps`
+ * told the timeline it would.
+ *
+ * Video and sound are folded apart, and not for tidiness: `acrossfade` has no
+ * offset at all — it always joins the tail of one to the head of the next — so
+ * there is nothing for the two walks to share.
+ *
+ * Repeats within a clip are joined first, with an ordinary cut. A transition
+ * belongs between clips; a clip dissolving into another showing of itself is
+ * not what "play it three times" means.
+ */
+function dissolve(
+  chunks: string[],
+  labels: Labels,
+  segments: Segment[],
+  gaps: number[],
+): { video: string | null; audio: string | null } {
+  const collapse = (pads: string[], audio: boolean): string | null => {
+    if (pads.length === 0) return null
+    if (pads.length === 1) return pads[0]
+    const out = labels.next(audio ? 'ra' : 'rv')
+    chunks.push(
+      `${pads.map((pad) => `[${pad}]`).join('')}` +
+        `concat=n=${pads.length}:v=${audio ? 0 : 1}:a=${audio ? 1 : 0}[${out}]`,
+    )
+    return out
+  }
+
+  let video = collapse(segments[0].video, false)
+  let audio = collapse(segments[0].audio, true)
+  // Only the picture needs this: it is what `offset` is measured against.
+  let elapsed = segments[0].length
+
+  for (let index = 1; index < segments.length; index += 1) {
+    const overlap = gaps[index] ?? 0
+    const nextVideo = collapse(segments[index].video, false)
+    const nextAudio = collapse(segments[index].audio, true)
+
+    if (video && nextVideo) {
+      const out = labels.next('xf')
+      if (overlap > 0) {
+        const at = Math.max(0, elapsed - overlap)
+        chunks.push(
+          `[${video}][${nextVideo}]xfade=transition=${segments[index].kind}` +
+            `:duration=${overlap.toFixed(3)}:offset=${at.toFixed(3)}[${out}]`,
+        )
+      } else {
+        chunks.push(`[${video}][${nextVideo}]concat=n=2:v=1:a=0[${out}]`)
+      }
+      video = out
+    } else {
+      video = video ?? nextVideo
+    }
+
+    if (audio && nextAudio) {
+      const out = labels.next('xa')
+      if (overlap > 0) {
+        // `c1`/`c2` are the curves each side follows. Triangular is the pair
+        // that holds the loudness steady across the join rather than dipping
+        // in the middle of it, which is what the default does.
+        chunks.push(
+          `[${audio}][${nextAudio}]acrossfade=d=${overlap.toFixed(3)}:c1=tri:c2=tri[${out}]`,
+        )
+      } else {
+        chunks.push(`[${audio}][${nextAudio}]concat=n=2:v=0:a=1[${out}]`)
+      }
+      audio = out
+    } else {
+      audio = audio ?? nextAudio
+    }
+
+    elapsed += segments[index].length - overlap
+  }
+
+  return { video, audio }
+}
+
+/** One clip's pads, kept together so a transition can join clip to clip. */
+interface Segment {
+  video: string[]
+  audio: string[]
+  length: number
+  kind: TransitionKind
 }
 
 /** Mints unique graph labels, so no two chunks can collide. */
@@ -218,16 +313,43 @@ export function buildGraph(request: GraphRequest): GraphResult {
   const videoPads: string[] = []
   const audioPads: string[] = []
 
+  // Where each clip's pads begin, so a transition can join clips rather than
+  // the repeats within one. Dissolving a clip into itself is a soft-focus
+  // effect nobody asked for.
+  const segments: Segment[] = []
+
+  // Dissolving needs both sides in the same pixel format, which the canvas
+  // filters do not pin — ffmpeg refuses the whole graph rather than converting.
+  // Added only when it is needed, so an ordinary join keeps the command it had.
+  const gaps = overlaps(project.clips)
+  const dissolving = project.layout === 'sequence' && gaps.some((gap) => gap > 0)
+
   for (const clip of project.clips) {
     const index = inputs.clips.get(clip.uid)
     if (index === undefined) continue
     const repeats = Math.max(1, Math.floor(clip.loop))
+    const segment: Segment = {
+      video: [],
+      audio: [],
+      length: clipDuration(clip),
+      kind: clip.transition?.kind ?? 'fade',
+    }
 
     if (wantVideo) {
       let label = labels.next('cv')
-      chunks.push(`[${index}:v]${clipVideoFilters(clip, canvas).join(',')}[${label}]`)
+      const filters = clipVideoFilters(clip, canvas)
+      if (dissolving) {
+        // `xfade` refuses two inputs whose pixel format or timebase differ,
+        // and neither is pinned by the canvas filters. The timebase is the
+        // one that only shows up in a *chain* of dissolves: a clip carries
+        // the frame rate's, and xfade hands on microseconds, so the second
+        // join in a row is where they meet and ffmpeg gives up.
+        filters.push('format=yuv420p', 'settb=AVTB')
+      }
+      chunks.push(`[${index}:v]${filters.join(',')}[${label}]`)
       if (clip.boomerang) label = boomerang(chunks, labels, label, false)
-      videoPads.push(...fanOut(chunks, labels, label, repeats, false))
+      segment.video = fanOut(chunks, labels, label, repeats, false)
+      videoPads.push(...segment.video)
     }
 
     if (wantClipAudio) {
@@ -244,8 +366,11 @@ export function buildGraph(request: GraphRequest): GraphResult {
         )
       }
       if (clip.boomerang) label = boomerang(chunks, labels, label, true)
-      audioPads.push(...fanOut(chunks, labels, label, repeats, true))
+      segment.audio = fanOut(chunks, labels, label, repeats, true)
+      audioPads.push(...segment.audio)
     }
+
+    segments.push(segment)
   }
 
   // 2. Put the clips together.
@@ -265,6 +390,10 @@ export function buildGraph(request: GraphRequest): GraphResult {
       )
       audio = mixed
     }
+  } else if (dissolving && segments.length > 1) {
+    const joined = dissolve(chunks, labels, segments, gaps)
+    video = joined.video
+    audio = joined.audio
   } else if (videoPads.length > 1 || audioPads.length > 1) {
     const count = Math.max(videoPads.length, audioPads.length)
     const withVideo = videoPads.length > 0

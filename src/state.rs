@@ -8,7 +8,7 @@ use crate::cli::Backend;
 use crate::dropbox::Dropbox;
 use crate::jobs::JobStore;
 use crate::paths::Roots;
-use crate::thumbs::ThumbCache;
+use crate::thumbs::BlobCache;
 use crate::wasmcache::WasmCache;
 
 pub struct AppState {
@@ -16,8 +16,16 @@ pub struct AppState {
     pub cache: WasmCache,
     /// Scratch space for dropped files, wiped when the process exits.
     pub dropbox: Dropbox,
-    pub thumbs: ThumbCache,
+    pub thumbs: BlobCache,
+    /// Audio peaks, kept apart from the frames so the two cannot collide.
+    pub peaks: BlobCache,
     pub jobs: JobStore,
+    /// Limits the ffmpeg runs that serve the interface rather than the queue.
+    ///
+    /// Extracting a frame or decoding a soundtrack for a waveform happens
+    /// outside the job queue, so without this a burst of them would take every
+    /// core while an export is trying to finish.
+    pub sidework: Arc<tokio::sync::Semaphore>,
     pub roots: Roots,
     pub backend: Backend,
     pub unsafe_args: bool,

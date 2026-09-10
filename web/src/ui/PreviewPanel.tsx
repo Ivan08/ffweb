@@ -46,6 +46,20 @@ export function PreviewPanel() {
   // layer can be measured against the picture rather than the box around it.
   const mediaRef = useRef<HTMLElement | null>(null)
 
+  // The keyboard needs to start and stop the picture, and the element it acts
+  // on lives here. Registered while this panel is mounted, and null while it
+  // is not — the crop editor takes the <video> off the stage entirely, and the
+  // space bar has to do nothing then rather than fail.
+  const registerPlayer = useStore((state) => state.registerPlayer)
+  useEffect(() => {
+    registerPlayer({
+      play: () => void videoRef.current?.play().catch(() => {}),
+      pause: () => videoRef.current?.pause(),
+      playing: () => Boolean(videoRef.current && !videoRef.current.paused),
+    })
+    return () => registerPlayer(null)
+  }, [registerPlayer])
+
   const [copied, setCopied] = useState(false)
   // Staying on the source is deliberate. Finishing a job used to swap the view
   // out from under whatever was being set up; the result announces itself in

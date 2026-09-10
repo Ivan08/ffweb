@@ -11,6 +11,7 @@ import type {
   FsListing,
   JobEventMessage,
   MediaInfo,
+  Peaks,
   WasmCacheStatus,
 } from '../core/types'
 
@@ -91,6 +92,20 @@ export const api = {
 
   thumbUrl: (path: string, at: number, width = 640) =>
     withToken(`/api/thumb?path=${encodeURIComponent(path)}&t=${at}&w=${width}`),
+
+  /**
+   * The loudness of a file over time, for drawing an audio track.
+   *
+   * A plain request rather than a URL for an element to load: this is numbers
+   * for the canvas to draw, so it goes through `fetch` with the token in a
+   * header like everything else that is read by code.
+   */
+  peaks: (path: string, buckets = 2000, from?: number, to?: number) => {
+    const query = new URLSearchParams({ path, buckets: String(buckets) })
+    if (from !== undefined) query.set('from', String(from))
+    if (to !== undefined) query.set('to', String(to))
+    return request<Peaks>(`/api/peaks?${query.toString()}`)
+  },
 
   upload: async (files: File[]) => {
     const body = new FormData()

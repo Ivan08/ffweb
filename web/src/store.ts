@@ -3,21 +3,25 @@
 import { create } from 'zustand'
 
 import { api } from './api/client'
+import { translate, useLanguage } from './i18n'
 import { buildProject, outputNameFor, type BuiltCommand } from './core/build'
-import { type Quality } from './core/containers'
+import { findContainer, pickEncoder, type Quality } from './core/containers'
 import { baseName } from './core/format'
 import { defaultParams, type Params } from './core/ops'
 import { parseCommandLine } from './core/shell'
 import { downloadJob } from './core/download'
-import { classifyLog, uniqueOutputName } from './core/jobs'
+import { classifyLog, looksLikeMissingHardware, uniqueOutputName } from './core/jobs'
 import { toPlaceholders, withOutputPlaceholder } from './core/placeholders'
+import { cleared, record, redo as redoStep, undo as undoStep, type History } from './core/history'
 import { applyTheme, initialTheme, readFlag, writeFlag, writeString } from './core/preferences'
 import {
   clipOf,
+  contentEnd,
   emptyProject,
+  isSubtitleFile,
   moveClip,
+  splitAt,
   fileOverlay,
-  resolveInputs,
   soundOf,
   textOverlay,
   timelineDuration,
@@ -27,10 +31,13 @@ import {
   type ExportTarget,
   type Overlay,
   type Project,
+  type Range,
   type Sound,
   type Subtitles,
+  type Transition,
 } from './core/project'
 import { appendLine, runJob } from './core/runner'
+import { layout, sourceAt } from './core/timeline'
 import type { Capabilities, EngineId, Job, MediaFile } from './core/types'
 import { nativeEngine } from './engines/native'
 import type { Engine } from './engines/types'
@@ -58,6 +65,26 @@ export interface Busy {
   name?: string
 }
 
+/**
+ * The picture on the stage, for the keyboard.
+ *
+ * `PreviewPanel` owns the `<video>` and registers this while it is mounted.
+ * There is no element at all while the crop rectangle is up, which is why
+ * every one of these is allowed to do nothing.
+ */
+export interface Player {
+  play: () => void
+  pause: () => void
+  playing: () => boolean
+}
+
+/** The timeline's zoom, which lives in the axis rather than in this store. */
+export interface TimelineHandle {
+  zoomIn: () => void
+  zoomOut: () => void
+  fit: () => void
+}
+
 /** What the inspector on the right is currently editing. */
 export type Focus =
   | { kind: 'none' }
@@ -66,6 +93,7 @@ export type Focus =
   | { kind: 'sound'; uid: string }
   | { kind: 'audio' }
   | { kind: 'subtitles' }
+  | { kind: 'range'; uid: string }
 
 interface AppState {
   capabilities: Capabilities | null
@@ -79,6 +107,8 @@ interface AppState {
 
   /** The whole description of the work. */
   project: Project
+  /** Earlier states of that description, and the way forward out of an undo. */
+  history: History<Project>
   /** Where the playhead sits on the timeline, in seconds. */
   playhead: number
   focus: Focus
@@ -114,11 +144,34 @@ interface AppState {
   /** Empty the workspace: files, timeline, settings, queue. */
   clearWorkspace: () => void
 
+  /** Step the project back, and forward again. Both do nothing when they cannot. */
+  undo: () => void
+  redo: () => void
+
+  /** Which modal is up, if any. A modal owns the keyboard while it is. */
+  dialog: 'files' | 'export' | null
+  openDialog: (dialog: 'files' | 'export') => void
+  closeDialog: () => void
+
+  /**
+   * Handles onto the two things the keyboard needs that state cannot hold: the
+   * `<video>` on the stage and the timeline's own zoom. Both are registered by
+   * the component that owns them and are null while it is not on screen.
+   */
+  player: Player | null
+  timelineView: TimelineHandle | null
+  registerPlayer: (player: Player | null) => void
+  registerTimelineView: (view: TimelineHandle | null) => void
+
   addClips: (fileIds: string[]) => void
   removeClip: (uid: string) => void
+  /** Cut the clip in two at a moment on the timeline. */
+  splitClip: (uid: string, seconds: number) => void
   moveClipBy: (uid: string, delta: number) => void
   patchClip: (uid: string, patch: Partial<Clip>) => void
   setLayout: (layout: Project['layout'], direction?: Project['stackDirection']) => void
+  /** How a clip arrives out of the one before it; null is a hard cut. */
+  setTransition: (uid: string, transition: Transition | null) => void
 
   patchAudio: (patch: Partial<AudioTrack>) => void
   addSound: (fileId: string, at?: number) => void
@@ -130,11 +183,31 @@ interface AppState {
   patchOverlay: (uid: string, patch: Partial<Overlay>) => void
   setSubtitles: (subtitles: Subtitles | null) => void
 
+  /**
+   * What of the workspace reaches the result.
+   *
+   * No range at all means all of it, so the first one marked is the moment the
+   * project starts saying which parts it wants.
+   */
+  addRange: (from: number, to: number) => void
+  patchRange: (uid: string, patch: Partial<Range>) => void
+  removeRange: (uid: string) => void
+  clearRanges: () => void
+
   addEffect: (op: EffectId) => void
   removeEffect: (uid: string) => void
   moveEffect: (uid: string, delta: number) => void
   toggleEffect: (uid: string) => void
   setEffectParam: (uid: string, key: string, value: Params[string]) => void
+  /**
+   * Several of an effect's parameters at once.
+   *
+   * A crop rectangle is four numbers that mean nothing apart, so writing them
+   * one at a time made a drag four steps of history per pointer move — and
+   * left undo restoring a width without its height, which is a rectangle that
+   * was never on screen.
+   */
+  patchEffect: (uid: string, params: Params) => void
 
   setFade: (fadeIn: number, fadeOut: number) => void
   setTarget: (target: ExportTarget) => void
@@ -160,9 +233,48 @@ function engineFor(id: EngineId): Engine {
   return id === 'native' ? nativeEngine : wasmEngine
 }
 
-/** Every project edit invalidates a command the user typed over the top. */
-function edit(project: Project): Pick<AppState, 'project' | 'commandOverride'> {
-  return { project, commandOverride: null }
+/**
+ * Every project edit invalidates a command the user typed over the top, and
+ * every one is a step you can take back.
+ *
+ * `key` is what makes a drag one step instead of forty. Continuous edits — a
+ * trim handle, a slider, a caption being typed — pass the same key and merge;
+ * structural ones — adding, removing, reordering — pass none and never merge.
+ */
+function edit(
+  state: AppState,
+  project: Project,
+  key?: string,
+): Pick<AppState, 'project' | 'commandOverride' | 'history'> {
+  return {
+    project,
+    commandOverride: null,
+    history: record(state.history, state.project, key, Date.now()),
+  }
+}
+
+/** Name a patch by what it touches, so two handles of one clip stay apart. */
+function patchKey(what: string, patch: object): string {
+  return `${what}:${Object.keys(patch).sort().join(',')}`
+}
+
+/**
+ * Put a remembered project back on screen.
+ *
+ * The playhead is not in the history — moving it is not an edit — but it has to
+ * stay somewhere the timeline still reaches, or stepping back to a shorter
+ * timeline leaves the cursor past the end of everything.
+ */
+function restored(
+  state: AppState,
+  step: { history: History<Project>; present: Project },
+): Partial<AppState> {
+  return {
+    project: step.present,
+    history: step.history,
+    commandOverride: null,
+    playhead: Math.max(0, Math.min(state.playhead, contentEnd(step.present))),
+  }
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -175,8 +287,13 @@ export const useStore = create<AppState>((set, get) => ({
   selection: [],
 
   project: emptyProject(),
+  history: cleared<Project>(),
   playhead: 0,
   focus: { kind: 'none' },
+
+  dialog: null,
+  player: null,
+  timelineView: null,
 
   commandOverride: null,
 
@@ -309,7 +426,11 @@ export const useStore = create<AppState>((set, get) => ({
     // The first file opened is what the user came to work on, so it goes on the
     // timeline without being asked. Later ones wait to be placed, because by
     // then there is a timeline whose order matters.
-    if (get().project.clips.length === 0) get().addClips([added[0].id])
+    //
+    // A subtitle file is the exception: it has no picture and no sound, so
+    // putting it on the video track would make a clip of nothing at all.
+    const first = added.find((file) => !isSubtitleFile(file.name))
+    if (first && get().project.clips.length === 0) get().addClips([first.id])
   },
 
   removeFile(id) {
@@ -326,6 +447,10 @@ export const useStore = create<AppState>((set, get) => ({
         subtitles: state.project.subtitles?.fileId === id ? null : state.project.subtitles,
       },
       commandOverride: null,
+      // History goes with it. Ids are minted afresh on every open, so a
+      // remembered project naming a file that has gone could never be put back
+      // on screen — and a history full of dead references is worse than none.
+      history: cleared<Project>(),
     }))
   },
 
@@ -360,6 +485,7 @@ export const useStore = create<AppState>((set, get) => ({
       files: [],
       selection: [],
       project: emptyProject(),
+      history: cleared<Project>(),
       playhead: 0,
       focus: { kind: 'none' },
       commandOverride: null,
@@ -372,6 +498,36 @@ export const useStore = create<AppState>((set, get) => ({
     })
   },
 
+  openDialog(dialog) {
+    set({ dialog })
+  },
+
+  closeDialog() {
+    set({ dialog: null })
+  },
+
+  registerPlayer(player) {
+    set({ player })
+  },
+
+  registerTimelineView(timelineView) {
+    set({ timelineView })
+  },
+
+  undo() {
+    set((state) => {
+      const back = undoStep(state.history, state.project)
+      return back ? restored(state, back) : state
+    })
+  },
+
+  redo() {
+    set((state) => {
+      const forward = redoStep(state.history, state.project)
+      return forward ? restored(state, forward) : state
+    })
+  },
+
   addClips(fileIds) {
     set((state) => {
       const clips = [...state.project.clips]
@@ -379,34 +535,72 @@ export const useStore = create<AppState>((set, get) => ({
         const file = state.files.find((candidate) => candidate.id === id)
         if (file) clips.push(clipOf(uid('c'), file))
       }
-      return edit({ ...state.project, clips })
+      return edit(state, { ...state.project, clips })
     })
   },
 
   removeClip(clipUid) {
     set((state) =>
-      edit({ ...state.project, clips: state.project.clips.filter((clip) => clip.uid !== clipUid) }),
+      edit(state, { ...state.project, clips: state.project.clips.filter((clip) => clip.uid !== clipUid) }),
     )
   },
 
+  splitClip(clipUid, seconds) {
+    set((state) => {
+      const index = state.project.clips.findIndex((clip) => clip.uid === clipUid)
+      if (index < 0) return state
+
+      const placed = layout(state.project.clips).find((block) => block.uid === clipUid)
+      if (!placed) return state
+
+      const halves = splitAt(
+        state.project.clips[index],
+        sourceAt(state.project.clips[index], seconds - placed.start),
+        uid('c'),
+      )
+      if (!halves) return state
+
+      const clips = [...state.project.clips]
+      clips.splice(index, 1, ...halves)
+      return edit(state, { ...state.project, clips })
+    })
+  },
+
   moveClipBy(clipUid, delta) {
-    set((state) => edit({ ...state.project, clips: moveClip(state.project.clips, clipUid, delta) }))
+    set((state) => edit(state, { ...state.project, clips: moveClip(state.project.clips, clipUid, delta) },
+        `clip:${clipUid}:order`,
+      ))
   },
 
   patchClip(clipUid, patch) {
     set((state) =>
-      edit({
+      edit(state, {
         ...state.project,
         clips: state.project.clips.map((clip) =>
           clip.uid === clipUid ? { ...clip, ...patch } : clip,
         ),
-      }),
+      }, patchKey(`clip:${clipUid}`, patch)),
+    )
+  },
+
+  setTransition(clipUid, transition) {
+    set((state) =>
+      edit(
+        state,
+        {
+          ...state.project,
+          clips: state.project.clips.map((clip) =>
+            clip.uid === clipUid ? { ...clip, transition } : clip,
+          ),
+        },
+        `clip:${clipUid}:transition`,
+      ),
     )
   },
 
   setLayout(layout, direction) {
     set((state) =>
-      edit({
+      edit(state, {
         ...state.project,
         layout,
         stackDirection: direction ?? state.project.stackDirection,
@@ -415,7 +609,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   patchAudio(patch) {
-    set((state) => edit({ ...state.project, audio: { ...state.project.audio, ...patch } }))
+    set((state) => edit(state, { ...state.project, audio: { ...state.project.audio, ...patch } }, patchKey('audio', patch)))
   },
 
   addSound(fileId, at = 0) {
@@ -424,7 +618,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (!file) return state
       const sound = soundOf(uid('s'), file, at)
       return {
-        ...edit({ ...state.project, sounds: [...state.project.sounds, sound] }),
+        ...edit(state, { ...state.project, sounds: [...state.project.sounds, sound] }),
         focus: { kind: 'sound', uid: sound.uid } as Focus,
       }
     })
@@ -432,18 +626,18 @@ export const useStore = create<AppState>((set, get) => ({
 
   removeSound(soundUid) {
     set((state) =>
-      edit({ ...state.project, sounds: state.project.sounds.filter((s) => s.uid !== soundUid) }),
+      edit(state, { ...state.project, sounds: state.project.sounds.filter((s) => s.uid !== soundUid) }),
     )
   },
 
   patchSound(soundUid, patch) {
     set((state) =>
-      edit({
+      edit(state, {
         ...state.project,
         sounds: state.project.sounds.map((sound) =>
           sound.uid === soundUid ? { ...sound, ...patch } : sound,
         ),
-      }),
+      }, patchKey(`sound:${soundUid}`, patch)),
     )
   },
 
@@ -453,7 +647,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (!file) return state
       const overlay = fileOverlay(uid('o'), file, timelineDuration(state.project))
       return {
-        ...edit({ ...state.project, overlays: [...state.project.overlays, overlay] }),
+        ...edit(state, { ...state.project, overlays: [...state.project.overlays, overlay] }),
         focus: { kind: 'overlay', uid: overlay.uid } as Focus,
       }
     })
@@ -463,7 +657,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => {
       const overlay = textOverlay(uid('o'), '', timelineDuration(state.project))
       return {
-        ...edit({ ...state.project, overlays: [...state.project.overlays, overlay] }),
+        ...edit(state, { ...state.project, overlays: [...state.project.overlays, overlay] }),
         focus: { kind: 'overlay', uid: overlay.uid } as Focus,
       }
     })
@@ -471,7 +665,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   removeOverlay(overlayUid) {
     set((state) =>
-      edit({
+      edit(state, {
         ...state.project,
         overlays: state.project.overlays.filter((overlay) => overlay.uid !== overlayUid),
       }),
@@ -480,22 +674,60 @@ export const useStore = create<AppState>((set, get) => ({
 
   patchOverlay(overlayUid, patch) {
     set((state) =>
-      edit({
+      edit(state, {
         ...state.project,
         overlays: state.project.overlays.map((overlay) =>
           overlay.uid === overlayUid ? { ...overlay, ...patch } : overlay,
         ),
-      }),
+      }, patchKey(`overlay:${overlayUid}`, patch)),
     )
   },
 
   setSubtitles(subtitles) {
-    set((state) => edit({ ...state.project, subtitles }))
+    set((state) => edit(state, { ...state.project, subtitles }))
+  },
+
+  addRange(from, to) {
+    set((state) => {
+      const range = { uid: uid('r'), from: Math.min(from, to), to: Math.max(from, to) }
+      return {
+        ...edit(state, { ...state.project, ranges: [...state.project.ranges, range] }),
+        focus: { kind: 'range', uid: range.uid } as Focus,
+      }
+    })
+  },
+
+  patchRange(rangeUid, patch) {
+    set((state) =>
+      edit(
+        state,
+        {
+          ...state.project,
+          ranges: state.project.ranges.map((range) =>
+            range.uid === rangeUid ? { ...range, ...patch } : range,
+          ),
+        },
+        patchKey(`range:${rangeUid}`, patch),
+      ),
+    )
+  },
+
+  removeRange(rangeUid) {
+    set((state) =>
+      edit(state, {
+        ...state.project,
+        ranges: state.project.ranges.filter((range) => range.uid !== rangeUid),
+      }),
+    )
+  },
+
+  clearRanges() {
+    set((state) => edit(state, { ...state.project, ranges: [] }))
   },
 
   addEffect(op) {
     set((state) =>
-      edit({
+      edit(state, {
         ...state.project,
         effects: [
           ...state.project.effects,
@@ -507,7 +739,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   removeEffect(itemUid) {
     set((state) =>
-      edit({
+      edit(state, {
         ...state.project,
         effects: state.project.effects.filter((item) => item.uid !== itemUid),
       }),
@@ -522,13 +754,13 @@ export const useStore = create<AppState>((set, get) => ({
       if (index < 0 || target < 0 || target >= effects.length) return state
       const [moved] = effects.splice(index, 1)
       effects.splice(target, 0, moved)
-      return edit({ ...state.project, effects })
+      return edit(state, { ...state.project, effects })
     })
   },
 
   toggleEffect(itemUid) {
     set((state) =>
-      edit({
+      edit(state, {
         ...state.project,
         effects: state.project.effects.map((item) =>
           item.uid === itemUid ? { ...item, enabled: !item.enabled } : item,
@@ -538,38 +770,56 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setEffectParam(itemUid, key, value) {
+    get().patchEffect(itemUid, { [key]: value })
+  },
+
+  patchEffect(itemUid, params) {
     set((state) =>
-      edit({
-        ...state.project,
-        effects: state.project.effects.map((item) =>
-          item.uid === itemUid ? { ...item, params: { ...item.params, [key]: value } } : item,
-        ),
-      }),
+      edit(
+        state,
+        {
+          ...state.project,
+          effects: state.project.effects.map((item) =>
+            item.uid === itemUid ? { ...item, params: { ...item.params, ...params } } : item,
+          ),
+        },
+        patchKey(`effect:${itemUid}`, params),
+      ),
     )
   },
 
   setFade(fadeIn, fadeOut) {
-    set((state) => edit({ ...state.project, fadeIn, fadeOut }))
+    set((state) => edit(state, { ...state.project, fadeIn, fadeOut }, 'fade'))
   },
 
   setTarget(target) {
-    set((state) => edit({ ...state.project, target }))
+    set((state) => edit(state, { ...state.project, target }))
   },
 
   setContainer(container) {
-    set((state) => edit({ ...state.project, container }))
+    set((state) => {
+      // A chosen encoder outlives the container it was chosen for. Keeping a
+      // dead one would hide it: the builder falls back silently, so the dialog
+      // would go on naming an encoder that is not writing anything.
+      const def = findContainer(container)
+      const keeps = def ? pickEncoder(def, state.project.quality.encoder) !== undefined : false
+      const quality = keeps
+        ? state.project.quality
+        : { ...state.project.quality, encoder: 'auto' }
+      return edit(state, { ...state.project, container, quality })
+    })
   },
 
   setQuality(quality) {
-    set((state) => edit({ ...state.project, quality: { ...state.project.quality, ...quality } }))
+    set((state) => edit(state, { ...state.project, quality: { ...state.project.quality, ...quality } }, patchKey('quality', quality)))
   },
 
   setStripMeta(stripMeta) {
-    set((state) => edit({ ...state.project, stripMeta }))
+    set((state) => edit(state, { ...state.project, stripMeta }))
   },
 
   setOutputName(name) {
-    set((state) => edit({ ...state.project, name }))
+    set((state) => edit(state, { ...state.project, name }, 'name'))
   },
 
   setPlayhead(seconds) {
@@ -635,7 +885,10 @@ export const useStore = create<AppState>((set, get) => ({
       const built = buildProject({ project, files: state.files, engine: state.engine })
       if (built.args.length === 0) continue
 
-      const names = inputNames({ ...state, project })
+      // Straight from the builder rather than worked out again: whether a file
+      // is opened can depend on the container, so a second walk of the project
+      // is a second answer.
+      const names = built.inputs.map((file) => file.name)
       const edited =
         state.commandOverride !== null && batch.length === 1
           ? withOutputPlaceholder(
@@ -646,7 +899,7 @@ export const useStore = create<AppState>((set, get) => ({
       const args = edited.args
       const outputName = uniqueOutputName(get().jobs, edited.outputName)
 
-      const inputs = inputFiles({ ...state, project })
+      const inputs = built.inputs
       const job: Job = {
         id: uid('j'),
         label: outputName,
@@ -718,7 +971,18 @@ function execute(
         })),
       preparing: (message) => set(() => ({ wasmMessage: message })),
       cancellable: (cancel) => cancelers.set(job.id, cancel),
-      failed: (message) => set(() => ({ error: message })),
+      failed: (message) =>
+        set((state) => {
+          const failing = state.jobs.find((candidate) => candidate.id === job.id)
+          // A hardware encoder that ffmpeg was built with but has no driver
+          // for fails with a message about a shared library or a device, which
+          // says nothing about the setting that caused it.
+          const hint =
+            failing && looksLikeMissingHardware(failing.command, failing.log)
+              ? ` ${translate(useLanguage.getState().language, 'error.hardwareEncoder')}`
+              : ''
+          return { error: `${message}${hint}` }
+        }),
     },
   ).then(() => {
     cancelers.delete(job.id)
@@ -730,19 +994,7 @@ function execute(
   })
 }
 
-/**
- * The files the command refers to, in placeholder order.
- *
- * This goes through the same helper the builder uses, so the two can never
- * disagree about which file became which `-i`.
- */
-function inputFiles(state: Pick<AppState, 'project' | 'files'>): MediaFile[] {
-  return resolveInputs(state.project, state.files).files
-}
 
-function inputNames(state: Pick<AppState, 'project' | 'files'>): string[] {
-  return inputFiles(state).map((file) => file.name)
-}
 
 export { outputNameFor }
 

@@ -20,6 +20,7 @@ async fn serve(token: Option<String>) -> (String, tempfile::TempDir) {
     std::fs::write(browse.join("clip.txt"), b"0123456789").expect("write");
     std::fs::create_dir_all(browse.join("sub")).expect("create");
     make_tiny_clip(&browse.join("tiny.mp4"));
+    make_tone(&browse.join("tone.mp4"));
 
     let state = build_state(browse, out, drop, &base, token);
     let app = ffweb::server::router(state);
@@ -53,6 +54,29 @@ fn make_tiny_clip(path: &std::path::Path) {
         .status();
 }
 
+/// The same, with a tone in it: `tiny.mp4` has no sound at all, and both cases
+/// are worth having.
+fn make_tone(path: &std::path::Path) {
+    let Some(ffmpeg) = ffweb::caps::Capabilities::detect(None, None).ffmpeg_path else {
+        return;
+    };
+    let _ = std::process::Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y"])
+        .args(["-f", "lavfi", "-i", "testsrc=size=64x48:rate=5:duration=1"])
+        .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=1"])
+        .args([
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .args(["-c:a", "aac", "-shortest"])
+        .arg(path)
+        .status();
+}
+
 fn build_state(
     browse: PathBuf,
     out: PathBuf,
@@ -64,13 +88,15 @@ fn build_state(
     let roots = ffweb::paths::Roots::new(browse, out, drop.clone()).expect("roots");
     // Inside the test's own temporary directory, like the scratch: reaching
     // into the shared one left a cache behind for every run.
-    let cache_dir = scratch.join("thumbs");
+    let cache_dir = scratch.join("cache");
     Arc::new(ffweb::state::AppState {
         jobs: ffweb::jobs::JobStore::new(1, caps.ffmpeg_path.clone()),
         cache: ffweb::wasmcache::WasmCache::new(true).expect("cache"),
         // Inside the test's own temporary directory, so it goes when that does.
         dropbox: ffweb::dropbox::Dropbox::create_in(scratch).expect("dropbox"),
-        thumbs: ffweb::thumbs::ThumbCache::new(&cache_dir).expect("thumbs"),
+        thumbs: ffweb::thumbs::BlobCache::new(&cache_dir, "thumbs", "jpg").expect("thumbs"),
+        peaks: ffweb::thumbs::BlobCache::new(&cache_dir, "peaks", "json").expect("peaks"),
+        sidework: Arc::new(tokio::sync::Semaphore::new(2)),
         caps,
         roots,
         backend: ffweb::cli::Backend::Auto,
@@ -293,6 +319,91 @@ async fn reports_an_unknown_job() {
         get(&format!("{base}/api/jobs/nope/events")).await.status(),
         404
     );
+}
+
+#[tokio::test]
+async fn measures_the_sound_of_a_file() {
+    let (base, dir) = serve(None).await;
+    let _ = dir;
+    if ffweb::caps::Capabilities::detect(None, None)
+        .ffmpeg_path
+        .is_none()
+    {
+        eprintln!("skipping: no ffmpeg on this machine");
+        return;
+    }
+
+    let response = get(&format!("{base}/api/peaks?path=tone.mp4&buckets=64")).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json")
+    );
+
+    let body: serde_json::Value = response.json().await.expect("json");
+    let peaks = body["peaks"].as_array().expect("peaks");
+    assert_eq!(peaks.len(), 64, "one number per bucket asked for");
+    assert!(
+        peaks
+            .iter()
+            .all(|value| (0.0..=1.0).contains(&value.as_f64().unwrap_or(-1.0))),
+        "every peak is a magnitude"
+    );
+    // The fixture is a second of a tone, so it is neither silent nor clipped.
+    assert!(
+        peaks
+            .iter()
+            .any(|value| value.as_f64().unwrap_or(0.0) > 0.05),
+        "a file with a tone in it read as silence"
+    );
+    assert!(body["duration"].as_f64().unwrap_or(0.0) > 0.5);
+}
+
+#[tokio::test]
+async fn says_plainly_that_a_file_has_no_sound() {
+    // Asked of a silent file, the answer is not an empty waveform — there is
+    // nothing to draw, and the interface has to be able to tell the difference
+    // between that and a request that has not come back yet.
+    let (base, dir) = serve(None).await;
+    let _ = dir;
+    if ffweb::caps::Capabilities::detect(None, None)
+        .ffmpeg_path
+        .is_none()
+    {
+        eprintln!("skipping: no ffmpeg on this machine");
+        return;
+    }
+
+    let response = get(&format!("{base}/api/peaks?path=tiny.mp4")).await;
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
+async fn refuses_to_measure_a_file_outside_the_roots() {
+    let (base, _dir) = serve(None).await;
+    for attempt in ["/etc/passwd", "../../etc/passwd"] {
+        let response = get(&format!(
+            "{base}/api/peaks?path={}",
+            urlencoding::encode(attempt)
+        ))
+        .await;
+        assert_eq!(response.status(), 400, "`{attempt}` was measured");
+    }
+}
+
+#[tokio::test]
+async fn does_not_confuse_the_token_with_the_range_of_a_waveform() {
+    // `t` was once mistaken for the token; `from` and `to` are the next two
+    // short names on the same endpoint family, so they get the same guard.
+    let (base, _dir) = serve(Some("secret".into())).await;
+    let response = get(&format!(
+        "{base}/api/peaks?path=tone.mp4&from=0.5&to=1.0&buckets=8&token=secret"
+    ))
+    .await;
+    assert_ne!(response.status(), 401, "the token was not recognised");
 }
 
 #[tokio::test]

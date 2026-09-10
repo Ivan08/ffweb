@@ -70,6 +70,11 @@ const INTERESTING_FILTERS: &[&str] = &[
     "hstack",
     "vstack",
     "concat",
+    // Dissolving one clip into the next, picture and sound.
+    "xfade",
+    "acrossfade",
+    // What a chain of dissolves needs both sides to agree on.
+    "settb",
     "amix",
     "loudnorm",
     "volume",

@@ -10,11 +10,11 @@
 
 import { useEffect } from 'react'
 
-import { estimateSize } from '../core/build'
-import { AUDIO_BITRATES, CONTAINERS, PRESETS } from '../core/containers'
+import { containerFor, estimateSize } from '../core/build'
+import { AUDIO_BITRATES, CONTAINERS, findContainer, PRESETS, VIDEO_ENCODERS } from '../core/containers'
 import { formatBytes, formatDelta } from '../core/format'
 import { num, type Params } from '../core/ops'
-import { fileOf, timelineDuration, type ExportTarget } from '../core/project'
+import { exportDuration, fileOf, type ExportTarget } from '../core/project'
 import { useT } from '../i18n'
 import { projectAvailability } from '../ops'
 import { useStore } from '../store'
@@ -65,16 +65,22 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const file = first ? fileOf(files, first.fileId) : undefined
   const encoders = engine === 'wasm' ? null : native?.encoders
   const kind = KIND_OF[project.target]
+  const container = findContainer(containerFor(project.target, project.container))
   const batch = project.clips.length === 1 && selection.length > 1 ? selection.length : 0
 
   const scaleItem = project.effects.find((item) => item.op === 'resizecompress' && item.enabled)
   const scale = scaleItem
     ? estimateScale(scaleItem.params, file?.info?.width ?? 0, file?.info?.height ?? 0)
     : 1
+  // The estimate is built on x264's quality curve, which says nothing about
+  // `-cq` and nothing at all about `-q:v`. A confidently wrong number is worse
+  // than none, so a hardware encoder gets none.
   const estimate =
-    project.target === 'video'
+    project.target === 'video' && project.quality.encoder === 'auto'
       ? estimateSize(file?.info ?? undefined, {
-          duration: timelineDuration(project),
+          // What comes out, not what is laid out: only the marked
+          // windows are encoded.
+          duration: exportDuration(project),
           crf: project.quality.crf,
           scale,
           container: project.container,
@@ -144,6 +150,33 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
               </Field>
             )}
 
+            {project.target === 'video' && container && (
+              <Field label={t('output.encoder')} hint={t('output.encoderHint')}>
+                <select
+                  className="field"
+                  value={project.quality.encoder}
+                  onChange={(event) => setQuality({ encoder: event.target.value })}
+                >
+                  <option value="auto">{t('output.encoderAuto')}</option>
+                  {VIDEO_ENCODERS.filter((def) => container.codecs?.includes(def.codec)).map(
+                    (def) => {
+                      // Listed if ffmpeg was built with it, which is not the
+                      // same as the machine having a driver — so an unavailable
+                      // one is shown disabled rather than hidden, and the run
+                      // that fails says why in the log.
+                      const found = !encoders || encoders.includes(def.id)
+                      return (
+                        <option key={def.id} value={def.id} disabled={!found}>
+                          {def.id}
+                          {found ? '' : ` — ${t('output.encoderMissing')}`}
+                        </option>
+                      )
+                    },
+                  )}
+                </select>
+              </Field>
+            )}
+
             {project.target === 'video' && (
               <>
                 <Slider
@@ -156,19 +189,22 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
                 />
                 <p className="-mt-1 text-[11px] leading-snug text-faint">{t('output.qualityHint')}</p>
 
-                <Field label={t('output.preset')}>
-                  <select
-                    className="field"
-                    value={project.quality.preset}
-                    onChange={(event) => setQuality({ preset: event.target.value })}
-                  >
-                    {PRESETS.map((preset) => (
-                      <option key={preset} value={preset}>
-                        {tOr(`o.preset.${preset}`, preset)}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+                {project.quality.encoder !== 'h264_videotoolbox' &&
+                  project.quality.encoder !== 'hevc_videotoolbox' && (
+                    <Field label={t('output.preset')}>
+                      <select
+                        className="field"
+                        value={project.quality.preset}
+                        onChange={(event) => setQuality({ preset: event.target.value })}
+                      >
+                        {PRESETS.map((preset) => (
+                          <option key={preset} value={preset}>
+                            {tOr(`o.preset.${preset}`, preset)}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  )}
               </>
             )}
 

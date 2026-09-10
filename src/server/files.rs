@@ -12,7 +12,7 @@ use tower_http::services::ServeFile;
 
 use super::error::{server_error, ApiError, ApiResult};
 use crate::state::SharedState;
-use crate::{fsapi, probe};
+use crate::{fsapi, probe, thumbs};
 
 #[derive(Deserialize)]
 pub struct PathQuery {
@@ -110,6 +110,57 @@ pub async fn probe_file(
     Ok(Json(probe::probe(ffprobe, &path).await?))
 }
 
+/// The sound of a file, as one number per slice of it.
+///
+/// Named at length on purpose. The access token is spelled `token` and the
+/// frame position is `t`, and those two have been confused once already — a
+/// short name here would be a third thing to mistake for either.
+#[derive(Deserialize)]
+pub struct PeaksQuery {
+    path: String,
+    /// How many slices to divide the sound into.
+    #[serde(default)]
+    buckets: Option<u32>,
+    /// Seconds into the file to start, and to stop.
+    #[serde(default)]
+    from: Option<f64>,
+    #[serde(default)]
+    to: Option<f64>,
+}
+
+pub async fn peaks(
+    State(state): State<SharedState>,
+    Query(query): Query<PeaksQuery>,
+) -> ApiResult<Response> {
+    let path = state.roots.resolve(&query.path)?;
+    // Enough to draw a wide track, few enough that the reply stays small.
+    let buckets = query.buckets.unwrap_or(2000).clamp(64, 4000);
+    let from = query.from.unwrap_or(0.0).max(0.0);
+    let to = query.to.filter(|end| *end > from);
+
+    let key = thumbs::peaks_key(buckets, from, to);
+    let json = match state.peaks.get(&path, &key) {
+        Some(cached) => cached,
+        None => {
+            let ffmpeg = probe::require(&state.caps.ffmpeg_path, "ffmpeg")?;
+            let _permit = state.sidework.acquire().await.map_err(server_error)?;
+            let measured = probe::peaks(ffmpeg, &path, buckets as usize, from, to).await?;
+            let fresh = serde_json::to_vec(&measured).map_err(server_error)?;
+            state.peaks.put(&path, &key, &fresh);
+            fresh
+        }
+    };
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::CACHE_CONTROL, "private, max-age=3600"),
+        ],
+        json,
+    )
+        .into_response())
+}
+
 #[derive(Deserialize)]
 pub struct ThumbQuery {
     path: String,
@@ -132,12 +183,16 @@ pub async fn thumb(
     // Zooming the timeline asks for a whole row of frames at once, and the same
     // positions come back as soon as the view returns. Extracting them again
     // every time is what made zooming slow.
-    let jpeg = match state.thumbs.get(&path, at, width) {
+    let key = thumbs::frame_key(at, width);
+    let jpeg = match state.thumbs.get(&path, &key) {
         Some(cached) => cached,
         None => {
             let ffmpeg = probe::require(&state.caps.ffmpeg_path, "ffmpeg")?;
+            // Extracting a frame is an ffmpeg run outside the job queue, so it
+            // takes a permit of its own rather than competing with an encode.
+            let _permit = state.sidework.acquire().await.map_err(server_error)?;
             let fresh = probe::thumbnail(ffmpeg, &path, at, width).await?;
-            state.thumbs.put(&path, at, width, &fresh);
+            state.thumbs.put(&path, &key, &fresh);
             fresh
         }
     };

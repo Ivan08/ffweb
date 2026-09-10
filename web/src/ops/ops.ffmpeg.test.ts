@@ -22,7 +22,6 @@ import { toNames } from '../core/placeholders'
 import {
   clipOf,
   emptyProject,
-  resolveInputs,
   type Clip,
   type Project,
 } from '../core/project'
@@ -171,7 +170,9 @@ async function execute(input: Project, label: string) {
   expect(built.args.length, `${label}: nothing was built`).toBeGreaterThan(0)
   expect(built.missing, `${label}: a file went missing`).toEqual([])
 
-  const inputs = resolveInputs(input, files()).files.map((file) => file.path)
+  // From the builder, not worked out again: it is the one that decided which
+  // files became which `-i`.
+  const inputs = built.inputs.map((file) => file.path)
   const output = join(dir, `${label.replace(/[^a-z0-9]+/gi, '-')}-${built.outputName}`)
   // Exactly the substitution the server performs, including inside an argument.
   const args = toNames(built.args, inputs, output)
@@ -398,6 +399,63 @@ describe('a project ffmpeg will actually run', () => {
     await execute(
       project({ subtitles: { fileId: captions.id, mode: 'burn', fontSize: 24 } }),
       'subtitles',
+    )
+  })
+
+  it('a soft subtitle track, in every container that carries one', async () => {
+    // The one stream mapped straight from an input rather than from a pad, and
+    // each container spells the codec differently — so a wrong spelling is
+    // refused by the muxer and nothing but a real run would show it.
+    for (const container of ['mp4', 'mkv', 'webm']) {
+      await execute(
+        project({ container, subtitles: { fileId: captions.id, mode: 'soft', fontSize: 24 } }),
+        `soft-subtitles-${container}`,
+      )
+    }
+  })
+
+  it('clips dissolving into one another', async () => {
+    // The offset arithmetic is the part no string comparison can check: a
+    // plausible number is accepted by the builder and rejected — or worse,
+    // quietly mistimed — by ffmpeg. The fixtures differ in size, frame rate
+    // and sample rate on purpose.
+    await execute(
+      project({
+        clips: [clip(primary), clip(second, { transition: { duration: 1, kind: 'fade' } })],
+      }),
+      'dissolved',
+    )
+  })
+
+  it('a dissolve after a repeat, and onto a silent clip', async () => {
+    // Repeats are joined within the clip and the dissolve happens between
+    // clips, so this is the shape where those two could be got the wrong way
+    // round. The silent clip is there because its sound is synthesised, and
+    // `acrossfade` has to accept that as readily as a real soundtrack.
+    await execute(
+      project({
+        clips: [
+          clip(primary, { loop: 2 }),
+          clip(silent, { transition: { duration: 0.5, kind: 'wipeleft' } }),
+          clip(second, { transition: { duration: 0.5, kind: 'circleopen' } }),
+        ],
+      }),
+      'dissolved-repeat',
+    )
+  })
+
+  it('a dissolve under an overlay and a fade', async () => {
+    // Everything downstream counts in seconds of the finished timeline, which
+    // a dissolve shortens. If the overlay window or the tail fade were left
+    // measured against the un-dissolved length, this is where it would show.
+    await execute(
+      project({
+        clips: [clip(primary), clip(second, { transition: { duration: 1, kind: 'fade' } })],
+        overlays: [overlay('o1', logo, { from: 0.5, to: 2, x: 0.1, y: 0.1 })],
+        fadeIn: 0.5,
+        fadeOut: 0.5,
+      }),
+      'dissolved-dressed',
     )
   })
 

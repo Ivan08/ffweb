@@ -1,4 +1,5 @@
 [
+  "acrossfade",
   "adelay",
   "afade",
   "aformat",
@@ -14,6 +15,7 @@
   "crop",
   "eq",
   "fade",
+  "format",
   "fps",
   "hstack",
   "loudnorm",
@@ -27,7 +29,9 @@
   "select",
   "setpts",
   "setsar",
+  "settb",
   "split",
   "subtitles",
-  "volume"
+  "volume",
+  "xfade"
 ]

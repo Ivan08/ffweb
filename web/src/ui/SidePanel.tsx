@@ -6,19 +6,20 @@
  * asked once, at the end, and not while the timeline is being built.
  */
 
-import { useState } from 'react'
-
 import { useT } from '../i18n'
 import { useStore } from '../store'
 import { Icon } from './controls'
 import { EffectsPanel } from './EffectsPanel'
 import { ExportDialog } from './ExportDialog'
 import { Inspector } from './Inspector'
+import { ResultPanel } from './ResultPanel'
 
 export function SidePanel() {
   const { t } = useT()
   const clips = useStore((state) => state.project.clips)
-  const [exporting, setExporting] = useState(false)
+  const dialog = useStore((state) => state.dialog)
+  const openDialog = useStore((state) => state.openDialog)
+  const closeDialog = useStore((state) => state.closeDialog)
 
   const empty = clips.length === 0
 
@@ -26,6 +27,7 @@ export function SidePanel() {
     <aside className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <Inspector />
+        <ResultPanel />
         <EffectsPanel />
       </div>
 
@@ -34,7 +36,7 @@ export function SidePanel() {
           type="button"
           className="btn btn-primary w-full !py-2"
           disabled={empty}
-          onClick={() => setExporting(true)}
+          onClick={() => openDialog('export')}
         >
           <Icon name="Download" size={14} />
           {t('export.open')}
@@ -42,7 +44,7 @@ export function SidePanel() {
         {empty && <p className="mt-1.5 text-center text-[11px] text-faint">{t('op.needsFile')}</p>}
       </div>
 
-      <ExportDialog open={exporting} onClose={() => setExporting(false)} />
+      <ExportDialog open={dialog === 'export'} onClose={closeDialog} />
     </aside>
   )
 }

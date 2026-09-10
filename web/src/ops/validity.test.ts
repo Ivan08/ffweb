@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest'
 import { CONTAINERS } from '../core/containers'
 import { emptyProject, type ExportTarget, type Project } from '../core/project'
 import {
-  build, caption, clip, effect, LOGO, MUSIC, overlay, PRIMARY, project, SECOND, SILENT, sound,
+  build, caption, clip, effect, LOGO, MUSIC, overlay, PRIMARY, project, SECOND, SILENT, sound, SUBS,
 } from './fixtures'
 
 /** Options that take a value, so a scan can skip over it. */
@@ -82,6 +82,32 @@ const SHAPES: Array<{ label: string; project: Project }> = [
     project: project({
       overlays: [overlay('o1', LOGO, { from: 0, to: 3 }), caption('t1', 'hello', { from: 1, to: 2 })],
     }),
+  },
+  {
+    label: 'dissolved',
+    project: project({
+      clips: [clip(PRIMARY), clip(SECOND, { transition: { duration: 1, kind: 'fade' } })],
+    }),
+  },
+  {
+    label: 'dissolved with a repeat and a silent clip',
+    project: project({
+      clips: [
+        clip(PRIMARY, { loop: 2 }),
+        // The repeat on a clip that *arrives* is the case where a botched
+        // fold leaves the second showing of it connected to nothing.
+        clip(SILENT, { loop: 2, transition: { duration: 0.5, kind: 'wipeleft' } }),
+        clip(SECOND, { boomerang: true, transition: { duration: 1, kind: 'circleopen' } }),
+      ],
+    }),
+  },
+  {
+    label: 'burnt-in subtitles',
+    project: project({ subtitles: { fileId: SUBS.id, mode: 'burn', fontSize: 24 } }),
+  },
+  {
+    label: 'soft subtitles',
+    project: project({ subtitles: { fileId: SUBS.id, mode: 'soft', fontSize: 24 } }),
   },
 ]
 
@@ -314,6 +340,34 @@ describe('the generated commands are legal ffmpeg', () => {
         if (!match) return
         expect(defined, `${label}: -map ${arg} names an undefined pad`).toContain(match[1])
       })
+    }
+  })
+
+  it('maps a subtitle stream only from an input it opened', () => {
+    // A soft track is the one thing mapped straight from an input rather than
+    // from a pad, so it is the one place a stale index would name a file that
+    // is not there — and ffmpeg would refuse the whole command.
+    for (const { args, label } of COMMANDS) {
+      const opened = args.filter((arg) => arg === '-i').length
+      args.forEach((arg, index) => {
+        if (args[index - 1] !== '-map') return
+        const match = /^(\d+):s$/.exec(arg)
+        if (!match) return
+        expect(
+          Number(match[1]),
+          `${label}: -map ${arg} names an input that was never opened`,
+        ).toBeLessThan(opened)
+      })
+    }
+  })
+
+  it('names a subtitle codec whenever it maps a subtitle stream', () => {
+    // The codec is per container, so a map without one means the container
+    // takes no subtitles and the whole track should have been left off.
+    for (const { args, label } of COMMANDS) {
+      const maps = args.filter((arg, index) => args[index - 1] === '-map' && /^\d+:s$/.test(arg))
+      if (maps.length === 0) continue
+      expect(args, `${label}: maps a subtitle stream without saying how to write it`).toContain('-c:s')
     }
   })
 

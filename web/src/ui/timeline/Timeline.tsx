@@ -11,18 +11,27 @@
  * columns of one flex row and the strips share a single measured element.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useT } from '../../i18n'
 import { formatDuration } from '../../core/format'
-import { contentEnd, timelineDuration } from '../../core/project'
+import { canvasOf } from '../../core/graph'
+import {
+  contentEnd,
+  exportDuration,
+  fileOf,
+  freeSpanAt,
+  isSubtitleFile,
+  timelineDuration,
+} from '../../core/project'
 import type { MediaFile } from '../../core/types'
 import { tickMarks } from '../../core/timeline'
 import { useStore } from '../../store'
-import { Icon } from '../controls'
+import { Icon, Segmented } from '../controls'
 import { Overview } from '../trim/Overview'
 import { audioRows, AudioTrack, ROW } from './AudioTrack'
 import { LANE, OverlayTrack } from './OverlayTrack'
+import { RANGE_ROW, RangeTrack } from './RangeTrack'
 import { VideoTrack } from './VideoTrack'
 import { useTimelineView, type TimelineView } from './useTimelineView'
 
@@ -41,6 +50,26 @@ export function Timeline() {
   const duration = timelineDuration(project)
   const reach = Math.max(duration, contentEnd(project))
   const axis = useTimelineView(reach)
+
+  // Read through refs so the handle registered below never closes over a stale
+  // playhead or a timeline that has since grown.
+  const playheadRef = useRef(playhead)
+  playheadRef.current = playhead
+  const reachRef = useRef(reach)
+  reachRef.current = reach
+
+  // The zoom lives in the axis, which no other component can reach. The
+  // keyboard needs it, so it is handed to the store for as long as the
+  // timeline is on screen.
+  const registerTimelineView = useStore((state) => state.registerTimelineView)
+  useEffect(() => {
+    registerTimelineView({
+      zoomIn: () => axis.zoomAround(playheadRef.current, 0.66),
+      zoomOut: () => axis.zoomAround(playheadRef.current, 1.5),
+      fit: () => axis.setView(0, reachRef.current),
+    })
+    return () => registerTimelineView(null)
+  }, [axis, registerTimelineView])
 
   if (project.clips.length === 0) return null
 
@@ -62,7 +91,15 @@ export function Timeline() {
         <span className="font-mono text-[11px] text-faint">
           {formatDuration(playhead, 1)} / {formatDuration(duration, 1)}
         </span>
+        {/* What is laid out and what will come out are the same until a window
+            is marked, and it is worth saying which is which once they differ. */}
+        {project.ranges.length > 0 && (
+          <span className="font-mono text-[11px] text-accent" title={t('range.hint')}>
+            → {formatDuration(exportDuration(project), 1)}
+          </span>
+        )}
         <div className="flex-1" />
+        <LayoutChoice />
         <button
           type="button"
           className="btn btn-ghost btn-icon"
@@ -94,6 +131,7 @@ export function Timeline() {
         <div className="shrink-0" style={{ width: GUTTER }}>
           <Label height={16} />
           <Label height={52}>{t('timeline.video')}</Label>
+        <Label height={RANGE_ROW}>{t('timeline.ranges')}</Label>
           <Label height={ROW * audioRows(project.sounds.length)}>{t('timeline.audio')}</Label>
           <Label height={LANE * Math.max(1, project.overlays.length)}>
             {t('timeline.overlays')}
@@ -103,6 +141,7 @@ export function Timeline() {
         <div ref={axis.axisRef} className="relative min-w-0 flex-1">
           <Ruler axis={axis} onSeek={setPlayhead} />
           <VideoTrack axis={axis} />
+          <RangeTrack axis={axis} />
           <AudioTrack axis={axis} />
           <OverlayTrack axis={axis} />
           {reach > duration + 0.01 && <ResultEnd axis={axis} at={duration} />}
@@ -141,9 +180,18 @@ function TimelineTools() {
   const addOverlay = useStore((state) => state.addOverlay)
   const addCaption = useStore((state) => state.addCaption)
   const addSound = useStore((state) => state.addSound)
+  const addRange = useStore((state) => state.addRange)
+  const project = useStore((state) => state.project)
+  const subtitles = useStore((state) => state.project.subtitles)
+  const setSubtitles = useStore((state) => state.setSubtitles)
+  const setFocus = useStore((state) => state.setFocus)
 
   const withPicture = files.filter((file) => file.info?.has_video !== false)
   const withSound = files.filter((file) => file.info?.has_audio !== false)
+  const subtitleFiles = files.filter((file) => isSubtitleFile(file.name))
+  // From the playhead to wherever the next window starts. Null when the
+  // playhead is already inside one, which is when there is nothing to add.
+  const free = freeSpanAt(project, playhead)
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5" style={{ marginLeft: GUTTER }}>
@@ -180,6 +228,50 @@ function TimelineTools() {
           empty={t('audio.needsSound')}
           onPick={(id) => addSound(id, playhead)}
         />
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-wider text-faint">
+          {t('timeline.ranges')}
+        </span>
+        <button
+          type="button"
+          className="btn !py-1 !text-[11px]"
+          title={free ? t('range.addAtHint') : t('range.addAtTaken')}
+          disabled={!free}
+          onClick={() => free && addRange(free.from, free.to)}
+        >
+          <Icon name="Plus" size={12} />
+          {t('range.add')}
+        </button>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-wider text-faint">
+          {t('subtitles.label')}
+        </span>
+        {subtitles ? (
+          <button
+            type="button"
+            className="btn !py-1 !text-[11px]"
+            onClick={() => setFocus({ kind: 'subtitles' })}
+          >
+            <Icon name="Captions" size={12} />
+            {fileOf(files, subtitles.fileId)?.name ?? t('timeline.missing')}
+          </button>
+        ) : (
+          <FileMenu
+            label={t('subtitles.add')}
+            icon="Captions"
+            title={t('subtitles.addHint')}
+            files={subtitleFiles}
+            empty={t('subtitles.needsFile')}
+            onPick={(id) => {
+              setSubtitles({ fileId: id, mode: 'soft', fontSize: 24 })
+              setFocus({ kind: 'subtitles' })
+            }}
+          />
+        )}
       </div>
     </div>
   )
@@ -255,6 +347,67 @@ function FileMenu({
         </div>
       )}
     </span>
+  )
+}
+
+/**
+ * Whether the clips play one after another or all at once.
+ *
+ * On the track rather than in the export dialog, because it is about how the
+ * blocks on this track combine — and it means nothing until there are two.
+ *
+ * The frame really does come out twice as wide (or tall): each clip is fitted
+ * to the canvas before being stacked, and nothing shrinks the pair afterwards.
+ * Rather than quietly halving the canvas, the size is stated.
+ */
+function LayoutChoice() {
+  const { t } = useT()
+  const project = useStore((state) => state.project)
+  const files = useStore((state) => state.files)
+  const setLayout = useStore((state) => state.setLayout)
+
+  if (project.clips.length < 2) return null
+
+  const canvas = canvasOf(project, files)
+  const stacked = project.stackDirection === 'vertical'
+  const size = stacked
+    ? `${canvas.width}×${canvas.height * 2}`
+    : `${canvas.width * 2}×${canvas.height}`
+
+  return (
+    <div className="flex items-center gap-2">
+      <Segmented
+        value={project.layout}
+        onChange={(layout) => setLayout(layout)}
+        options={[
+          {
+            value: 'sequence' as const,
+            label: t('layout.sequence'),
+            title: t('layout.sequenceHint'),
+          },
+          {
+            value: 'side-by-side' as const,
+            label: t('layout.together'),
+            title: t('layout.togetherHint'),
+          },
+        ]}
+      />
+      {project.layout === 'side-by-side' && (
+        <>
+          <Segmented
+            value={project.stackDirection}
+            onChange={(direction) => setLayout('side-by-side', direction)}
+            options={[
+              { value: 'horizontal' as const, label: t('o.sxs.direction.horizontal') },
+              { value: 'vertical' as const, label: t('o.sxs.direction.vertical') },
+            ]}
+          />
+          <span className="font-mono text-[11px] text-faint" title={t('layout.sizeHint')}>
+            {size}
+          </span>
+        </>
+      )}
+    </div>
   )
 }
 

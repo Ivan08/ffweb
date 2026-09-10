@@ -41,6 +41,12 @@ export interface TimelineView {
   percent: (seconds: number) => string
   /** Seconds covered by a horizontal pixel distance. */
   secondsPerPixel: () => number
+  /**
+   * Stop the axis rescaling while a gesture changes what it measures, and let
+   * it catch up once the gesture is over.
+   */
+  hold: () => void
+  release: () => void
   /** Scroll the window when a drag reaches the edge. */
   followEdge: (clientX: number) => void
 }
@@ -48,9 +54,33 @@ export interface TimelineView {
 export function useTimelineView(duration: number): TimelineView {
   const [view, setViewState] = useState<View>({ start: 0, end: duration })
 
+  /**
+   * Whether a gesture is under way that changes the length of the timeline.
+   *
+   * Trimming a clip shortens the timeline, and the axis measures the timeline,
+   * so without this the ruler rescales between one pointer move and the next —
+   * the edge being dragged slides out from under the pointer, and the trim
+   * compounds. On a long clip that runs away to nothing in a few moves.
+   */
+  const holding = useRef(false)
+  const durationRef = useRef(duration)
+  durationRef.current = duration
+
   useEffect(() => {
+    if (holding.current) return
     setViewState({ start: 0, end: duration })
   }, [duration])
+
+  const hold = useCallback(() => {
+    holding.current = true
+  }, [])
+
+  const release = useCallback(() => {
+    if (!holding.current) return
+    holding.current = false
+    // Take in whatever the gesture did, keeping where the window was looking.
+    setViewState((current) => clampView(current.start, current.end, durationRef.current))
+  }, [])
 
   const axisRef = useRef<HTMLDivElement>(null)
   // Read inside pointer handlers, which are set up once per drag and would
@@ -169,6 +199,8 @@ export function useTimelineView(duration: number): TimelineView {
       percent,
       secondsPerPixel,
       followEdge,
+      hold,
+      release,
     }),
     [
       view,
@@ -183,6 +215,8 @@ export function useTimelineView(duration: number): TimelineView {
       percent,
       secondsPerPixel,
       followEdge,
+      hold,
+      release,
     ],
   )
 }

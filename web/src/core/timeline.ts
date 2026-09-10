@@ -11,8 +11,12 @@
  * a browser to check.
  */
 
-import { clamp, fractionOf } from './geometry'
-import { clipDuration, type Clip } from './project'
+import { clamp, fractionOf, type View } from './geometry'
+import { laidOut, sourceAt, type Clip } from './project'
+
+// Where a moment on a block falls in its source: the model's answer, re-exported
+// so the tracks can ask the module they already talk to.
+export { sourceAt }
 
 export interface Span {
   start: number
@@ -37,6 +41,29 @@ export const MIN_SPAN = 0.05
  * forty per cent of the timeline.
  */
 export const MIN_BLOCK = 0.004
+
+/**
+ * The part of a clip's source that is actually on screen.
+ *
+ * A block is drawn clipped to the visible window, so what fills it has to be
+ * clipped the same way. Sampling the whole clip instead — which is what the
+ * frame strip and the waveform both used to do — draws the entire clip inside
+ * whatever sliver of it is showing, so zooming in magnifies the block and
+ * changes nothing inside it.
+ *
+ * Returned in ascending order even for a reversed clip, where the source runs
+ * the other way: callers want a range to read, and which end of the file it
+ * started from is `reverse`'s business, not theirs.
+ */
+export function visibleSource(block: Placed, view: View): Span | null {
+  const start = Math.max(block.start, view.start)
+  const end = Math.min(block.end, view.end)
+  if (end <= start) return null
+
+  const first = sourceAt(block.clip, start - block.start)
+  const last = sourceAt(block.clip, end - block.start)
+  return first <= last ? { start: first, end: last } : { start: last, end: first }
+}
 
 /**
  * Where a block sits on the axis, ready for CSS, in per cent.
@@ -70,14 +97,9 @@ export function blockPlacement(
  * effects.
  */
 export function layout(clips: Clip[]): Placed[] {
-  const placed: Placed[] = []
-  let offset = 0
-  for (const clip of clips) {
-    const length = clipDuration(clip)
-    placed.push({ uid: clip.uid, clip, start: offset, end: offset + length })
-    offset += length
-  }
-  return placed
+  // The walk itself lives with the model, so the picture on screen and the
+  // command being built cannot disagree about where a clip sits.
+  return laidOut(clips).map((block) => ({ ...block, uid: block.clip.uid }))
 }
 
 /** Which clip is playing at a given moment, and where inside its source. */
@@ -87,11 +109,10 @@ export function clipAt(
 ): { uid: string; clip: Clip; sourceSeconds: number } | null {
   for (const placed of layout(clips)) {
     if (seconds < placed.start || seconds > placed.end) continue
-    const speed = placed.clip.speed > 0 ? placed.clip.speed : 1
     return {
       uid: placed.uid,
       clip: placed.clip,
-      sourceSeconds: placed.clip.in + (seconds - placed.start) * speed,
+      sourceSeconds: sourceAt(placed.clip, seconds - placed.start),
     }
   }
   return null
@@ -107,8 +128,10 @@ export function clipAt(
 export function timelineAt(clips: Clip[], uid: string, sourceSeconds: number): number | null {
   for (const placed of layout(clips)) {
     if (placed.uid !== uid) continue
-    const speed = placed.clip.speed > 0 ? placed.clip.speed : 1
-    return placed.start + (sourceSeconds - placed.clip.in) / speed
+    const { clip } = placed
+    const speed = clip.speed > 0 ? clip.speed : 1
+    const travelled = clip.reverse ? clip.out - sourceSeconds : sourceSeconds - clip.in
+    return placed.start + travelled / speed
   }
   return null
 }

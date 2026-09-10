@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { classifyLog, uniqueOutputName } from './jobs'
+import { classifyLog, looksLikeMissingHardware, uniqueOutputName } from './jobs'
 
 describe('reading a log line', () => {
   it('picks out the level ffmpeg prefixes', () => {
@@ -47,5 +47,54 @@ describe('naming a result', () => {
       outputName: i === 0 ? 'a.mp4' : `a-${i + 1}.mp4`,
     }))
     expect(uniqueOutputName(many, 'a.mp4')).toBe('a.mp4')
+  })
+})
+
+describe('telling a missing driver from an ordinary failure', () => {
+  const log = (...lines: string[]) => lines.map((text) => ({ text }))
+
+  it('recognises a hardware encoder that cannot start', () => {
+    // ffmpeg lists an encoder it was built with whether or not the machine has
+    // a driver, so this failure is about a setting the person chose — and the
+    // message ffmpeg gives says nothing about that setting.
+    expect(
+      looksLikeMissingHardware(
+        ['-c:v', 'h264_nvenc', '-cq', '26'],
+        log('[error] Cannot load libnvidia-encode.so.1'),
+      ),
+    ).toBe(true)
+
+    expect(
+      looksLikeMissingHardware(
+        ['-c:v', 'h264_vaapi'],
+        log('[error] No capable devices found'),
+      ),
+    ).toBe(true)
+
+    // Observed on a machine whose ffmpeg lists h264_qsv and which has no Intel
+    // graphics: the message names neither the encoder nor the choice.
+    expect(
+      looksLikeMissingHardware(
+        ['-c:v', 'h264_qsv'],
+        log('[h264_qsv @ 0x6127140f4340] Error creating a MFX session: -9.'),
+      ),
+    ).toBe(true)
+  })
+
+  it('says nothing when the encoder was the software one', () => {
+    expect(
+      looksLikeMissingHardware(['-c:v', 'libx264'], log('[error] Cannot load something')),
+    ).toBe(false)
+  })
+
+  it('says nothing about a failure that had another cause', () => {
+    // A hardware encode can fail for the ordinary reasons too, and blaming the
+    // encoder for a missing file would send somebody the wrong way.
+    expect(
+      looksLikeMissingHardware(
+        ['-c:v', 'h264_nvenc'],
+        log('[error] holiday.mp4: No such file or directory'),
+      ),
+    ).toBe(false)
   })
 })

@@ -81,6 +81,13 @@ export interface MediaFile {
   infoError?: string
 }
 
+/** How loud a file is over time: one magnitude per slice, 0 to 1. */
+export interface Peaks {
+  duration: number
+  from: number
+  peaks: number[]
+}
+
 export type JobState = 'queued' | 'running' | 'done' | 'failed' | 'canceled'
 
 export interface Job {

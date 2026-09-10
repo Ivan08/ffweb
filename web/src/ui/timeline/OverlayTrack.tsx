@@ -38,6 +38,12 @@ export function OverlayTrack({ axis }: { axis: TimelineView }) {
   const removeOverlay = useStore((state) => state.removeOverlay)
 
   const [drag, setDrag] = useState<Drag>(null)
+  // An overlay can reach past the picture, so moving or resizing one changes
+  // how far the axis reaches. Held still for the gesture.
+  const grab = (next: Drag) => {
+    axis.hold()
+    setDrag(next)
+  }
   const bounds = { start: 0, end: contentEnd(project) }
 
   useDrag(
@@ -58,7 +64,10 @@ export function OverlayTrack({ axis }: { axis: TimelineView }) {
           if (drag.kind === 'move') setDrag({ ...drag, grabbedAt: at })
         }
       : null,
-    () => setDrag(null),
+    () => {
+      setDrag(null)
+      axis.release()
+    },
   )
 
   if (project.overlays.length === 0) {
@@ -100,7 +109,7 @@ export function OverlayTrack({ axis }: { axis: TimelineView }) {
             onPointerDown={(event) => {
               event.stopPropagation()
               setFocus({ kind: 'overlay', uid: overlay.uid })
-              setDrag({ kind: 'move', uid: overlay.uid, grabbedAt: axis.secondsAt(event.clientX) })
+              grab({ kind: 'move', uid: overlay.uid, grabbedAt: axis.secondsAt(event.clientX) })
             }}
           >
             <Icon name={caption ? 'Type' : 'Image'} size={10} className="shrink-0 text-faint" />
@@ -126,13 +135,13 @@ export function OverlayTrack({ axis }: { axis: TimelineView }) {
             <Edge
               side="start"
               label={t('overlay.startHandle')}
-              onGrab={(at) => setDrag({ kind: 'start', uid: overlay.uid, grabbedAt: at })}
+              onGrab={(at) => grab({ kind: 'start', uid: overlay.uid, grabbedAt: at })}
               axis={axis}
             />
             <Edge
               side="end"
               label={t('overlay.endHandle')}
-              onGrab={(at) => setDrag({ kind: 'end', uid: overlay.uid, grabbedAt: at })}
+              onGrab={(at) => grab({ kind: 'end', uid: overlay.uid, grabbedAt: at })}
               axis={axis}
             />
           </div>
